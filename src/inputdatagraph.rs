@@ -83,15 +83,20 @@ impl InputDataGraph {
         }
 
         let mut matchcount: HashMap<String, i32> = HashMap::new();
-        *matchcount.entry(String::from("StartT")).or_default() += 1;
-        *matchcount.entry(String::from("EndT")).or_default() += 1;
-        let mut hset;
 
         // default edges
-        hset = [PMatch::new("StartT", 1)].iter().cloned().collect();
-        let _ = dag.add_edge(NodeIndex::new(0), NodeIndex::new(1), hset);
-        hset = [PMatch::new("EndT", 1)].iter().cloned().collect();
-        let _ = dag.add_edge(NodeIndex::new(s.len()+1), NodeIndex::new(s.len()+2), hset);
+        *matchcount.entry(String::from("StartT")).or_default() += 1;
+        *matchcount.entry(String::from("EndT")).or_default() += 1;
+        let _ = dag.add_edge(
+            NodeIndex::new(0), 
+            NodeIndex::new(1),
+            [PMatch::new("StartT", 1)].into()
+        );
+        let _ = dag.add_edge(
+            NodeIndex::new(s.len()+1), 
+            NodeIndex::new(s.len()+2), 
+            [PMatch::new("EndT", 1)].into()
+        );
 
         // create substring edge labels
         for i in 1..s.len()+1 {
@@ -99,8 +104,11 @@ impl InputDataGraph {
                 let substring = &s[i-1..j-1];
                 let mstr = String::from("c_".to_owned() + substring);
                 *matchcount.entry(mstr.clone()).or_default() += 1;
-                hset = [PMatch::new(mstr.as_str(), *matchcount.get(&mstr).unwrap())].iter().cloned().collect();
-                let _ = dag.add_edge(NodeIndex::new(i), NodeIndex::new(j), hset);
+                let _ = dag.add_edge(
+                    NodeIndex::new(i), 
+                    NodeIndex::new(j), 
+                    [PMatch::new(mstr.as_str(), *matchcount.get(&mstr).unwrap())].into()
+                );
             }
         }
 
@@ -113,32 +121,28 @@ impl InputDataGraph {
                 let edge = dag.find_edge(ns, ne).unwrap();
                 let kstr = String::from(*t);
                 *matchcount.entry(kstr.clone()).or_default() += 1;
-                let mut h = HashSet::new();
-                h.insert(PMatch::new(*t, *matchcount.get(&kstr).unwrap()));
-                let b = dag.edge_weight(edge).unwrap().union(&h.iter().cloned().collect()).cloned().collect();
-                let _ = dag.update_edge(ns, ne, b);
+
+                // Union the token match with the current set of tokens for this edge
+                let uniondweight = dag.edge_weight(edge).unwrap().union(
+                    &HashSet::from_iter([PMatch::new(*t, *matchcount.get(&kstr).unwrap())])
+                ).cloned().collect();
+                let _ = dag.update_edge(ns, ne, uniondweight);
             }
         }
 
-        let mut add: Vec<(NodeIndex, NodeIndex, HashSet<PMatch>)> = vec![];
-        for e in add.into_iter() {
-            let _ = dag.update_edge(e.0, e.1, e.2);
-        }
-
         // create negative labels
-        add = vec![];
+        let mut add: Vec<(NodeIndex, NodeIndex, HashSet<PMatch>)> = vec![];
         for e in dag.raw_edges() {
-            let mut ps = HashSet::new();
+            let mut negmatches = HashSet::new();
             for m in e.weight.iter() {
                 let mc = matchcount.get(&m.tau).unwrap();
                 for i in 1..mc+1 {
                     if m.k == mc - (i - 1) {
-                        ps.insert(PMatch::new(&m.tau, -i));
+                        negmatches.insert(PMatch::new(&m.tau, -i));
                     }
                 }
             }
-            let b = e.weight.union(&ps.iter().cloned().collect()).cloned().collect();
-            add.push((e.source(), e.target(), b));
+            add.push((e.source(), e.target(), e.weight.union(&negmatches).cloned().collect()));
         }
 
         for e in add {
