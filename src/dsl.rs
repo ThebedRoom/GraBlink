@@ -32,9 +32,9 @@ impl DSLInterpreter<'_> {
         DSLInterpreter { program }
     }
 
-    pub fn interpret(&self, input: String) -> Option<BlinkFillDSL> {
+    pub fn interpret(&self, input: &String) -> Option<BlinkFillDSL> {
         let root = self.program.as_ref().last().unwrap(); // grab root expr
-        self.eval(root, &input)
+        self.eval(root, input)
     }
 
     fn eval(&self, expr: &BlinkFillDSL, input: &String) -> Option<BlinkFillDSL> {
@@ -162,17 +162,20 @@ impl DSLInterpreter<'_> {
     }
 
     fn get_regex_index(&self, vi: &String, re: &Regex, k: &i32, dir: &BlinkFillDSL) -> usize {
-        println!("HERE: {} {} {} {}", vi, re, k, dir);
+        let matches: Vec<Match> = re.find_iter(vi).collect();
+        let idx = if *k >= 0 {
+            *k
+        } else {
+            (matches.len() as i32) + *k
+        };
         match dir {
             BlinkFillDSL::Start => {
-                let matches: Vec<Match> = re.find_iter(vi).collect();
-                let chosen_match = matches.iter().nth(*k as usize);
+                let chosen_match = matches.iter().nth(idx as usize);
                 chosen_match.unwrap().start()
             }
             BlinkFillDSL::End => {
-                let matches: Vec<Match> = re.find_iter(vi).collect();
                 let mut rmatches = matches.iter().rev();
-                let chosen_match = rmatches.nth(*k as usize);
+                let chosen_match = rmatches.nth(idx as usize);
                 chosen_match.unwrap().start()
             }
 

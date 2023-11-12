@@ -1,0 +1,5 @@
+this is a sentence;this
+how about this;how
+test;test
+32 things;32
+MANY THINGS;MANY

@@ -1,16 +1,24 @@
-use crate::dsl::*;
+use crate::dsl::{BlinkFillDSL, DSLInterpreter};
+use crate::inputdatagraph::{InputDataGraph, PMatch};
 use egg::*;
 
-pub struct Synthesizer {
-    examples: Vec<String>,
+pub struct Synthesizer<'a> {
+    examples: Vec<(String, String)>,
+    idg: &'a InputDataGraph,
     max_concat_arity: usize,
     iter_limit: usize,
 }
 
-impl Synthesizer {
-    pub fn new(examples: Vec<String>, max_concat_arity: usize, iter_limit: usize) -> Synthesizer {
+impl Synthesizer<'_> {
+    pub fn new(
+        examples: Vec<(String, String)>,
+        idg: &InputDataGraph,
+        max_concat_arity: usize,
+        iter_limit: usize,
+    ) -> Synthesizer {
         Synthesizer {
             examples,
+            idg,
             max_concat_arity,
             iter_limit,
         }
@@ -25,8 +33,12 @@ impl Synthesizer {
             .with_expr(&expr)
             .run(&self.make_rules());
 
+        let cost = SynthesisCost {
+            examples: &self.examples,
+        };
+
         // Create an extractor with our custom cost function
-        let extractor = Extractor::new(&runner.egraph, SynthesisCost);
+        let extractor = Extractor::new(&runner.egraph, cost);
         // Extract lowest cost expression
         let (best_cost, best) = extractor.find_best(runner.roots[0]);
         println!("{} expanded to {} with cost {}", expr, best, best_cost);
@@ -38,44 +50,56 @@ impl Synthesizer {
 
         // dynamic concat rules
         rules.extend((1..self.max_concat_arity).map(|n| {
-            let rule = format!("(concat {})", "F ".repeat(n))
+            let rule = format!("(!NONTERINAL_CONCAT {})", "!NONTERMINAL_F ".repeat(n))
                 .parse::<Pattern<BlinkFillDSL>>()
                 .unwrap();
-            rewrite!(format!("concat {}", n); "(E)" => rule)
+            rewrite!(format!("concat {}", n); "(!NONTERMINAL_E)" => rule)
         }));
+
+        // TODO: use idg to make rules for filling pos
+
+        // TODO: dynamic rules for substituting P (regex, k, dir)
+        // TODO: dynamic rules for constant str & constant pos (not sure how they are gotten)
 
         // static rules
         rules.extend(vec![
-            rewrite!("F -> substr(vi, pl, pr)"; "(F)" => "(substr input p p)"),
-            rewrite!("F -> ConstantStr(s)"; "(F)" => "(constr)"),
-            rewrite!("p -> pos(token, k, dir)"; "(p)" => "(pos match dir)"),
-            rewrite!("p -> ConstantPos(k)"; "(p)" => "(constpos)"),
-            rewrite!("Dir -> Start"; "(dir)" => "(start)"),
-            rewrite!("Dir -> End"; "(dir)" => "(end)"),
+            rewrite!("F -> substr(vi, pl, pr)"; "(!NONTERMINAL_F)" => 
+                "(!NONTERMINAL_SUBSTR !NONTERMINAL_INPUT !NONTERMINAL_P !NONTERMINAL_P)"),
+            rewrite!("Dir -> Start"; "(!NONTERMINAL_DIR)" => "(!TERMINAL_START)"),
+            rewrite!("Dir -> END"; "(!NONTERMINAL_DIR)" => "(!TERMINAL_END)"),
         ]);
 
         rules
     }
 }
 
-struct SynthesisCost;
-impl CostFunction<BlinkFillDSL> for SynthesisCost {
+struct SynthesisCost<'a> {
+    examples: &'a Vec<(String, String)>,
+}
+impl CostFunction<BlinkFillDSL> for SynthesisCost<'_> {
     type Cost = f64;
     fn cost<C>(&mut self, enode: &BlinkFillDSL, mut costs: C) -> Self::Cost
     where
         C: FnMut(Id) -> Self::Cost,
     {
-        let op_cost = match enode {
-            // For now, just make the largest expression w/o non-terms
-            // in reality, we will define cost based on
-            //  1. Complete, no non-terms
-            //  2. Correct, io examples work
-            BlinkFillDSL::E => 100.0,
-            BlinkFillDSL::F => 100.0,
-            BlinkFillDSL::P => 100.0,
-            BlinkFillDSL::Dir => 100.0,
-            _ => -1.0,
-        };
-        enode.fold(op_cost, |sum, id| sum + costs(id))
+        let mut cost = 0.0;
+        // TODO: use interpreter on examples to make cost
+        let program: RecExpr<BlinkFillDSL> = enode.to_string().parse().unwrap();
+        let intpr = DSLInterpreter::new(&program);
+        for (input, output) in self.examples {
+            match intpr.interpret(input) {
+                Some(o) => {
+                    if o.to_string() != *output {
+                        // program is not correct
+                        cost = f64::INFINITY
+                    }
+                }
+                None => cost = f64::INFINITY, // program is not valid
+            }
+        }
+        // optionally, we can have lower costs for shorter programs
+        cost += program.as_ref().len() as f64;
+
+        cost
     }
 }

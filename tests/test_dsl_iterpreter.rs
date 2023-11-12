@@ -8,7 +8,7 @@ fn test_concat_toplevel_concatenates() {
         .unwrap();
     let intpr = DSLInterpreter::new(&expr);
     assert_eq!(
-        intpr.interpret(String::from("")).unwrap().to_string(),
+        intpr.interpret(&String::from("")).unwrap().to_string(),
         "wowyou'rereallyreadingthis"
     )
 }
@@ -18,12 +18,12 @@ fn test_substr_gets_correct_indices() {
     let expr: RecExpr<BlinkFillDSL> = r#"
         (!NONTERMINAL_SUBSTR "abc1def1ghi1jkl1mno"
             (!TERMINAL_POS "\d+" 1 !TERMINAL_START) 
-            (!TERMINAL_POS "\d+" 1 !TERMINAL_END))"#
+            (!TERMINAL_POS "\d+" -3 !TERMINAL_END))"#
         .parse()
         .unwrap();
     let intpr = DSLInterpreter::new(&expr);
     assert_eq!(
-        intpr.interpret(String::from("")).unwrap().to_string(),
+        intpr.interpret(&String::from("")).unwrap().to_string(),
         "1ghi1"
     )
 }
@@ -34,7 +34,7 @@ fn test_input_outputs_input() {
     let intpr = DSLInterpreter::new(&expr);
     assert_eq!(
         intpr
-            .interpret(String::from("shadow wizard money gang"))
+            .interpret(&String::from("shadow wizard money gang"))
             .unwrap()
             .to_string(),
         "shadow wizard money gang"
@@ -47,7 +47,7 @@ fn test_pos_holds_children() {
         .parse()
         .unwrap();
     let intpr = DSLInterpreter::new(&expr);
-    let res = intpr.interpret(String::from("")).unwrap();
+    let res = intpr.interpret(&String::from("")).unwrap();
     let children = res.children();
 
     println!("{}", children[0].to_string());
@@ -72,7 +72,7 @@ fn test_lhs_nonterminals_are_none() {
 
     for expr in exprs {
         let intpr = DSLInterpreter::new(&expr);
-        let res = intpr.interpret(String::from(""));
+        let res = intpr.interpret(&String::from(""));
         assert_eq!(res, None);
     }
 }
@@ -86,7 +86,7 @@ fn test_terminals_are_themselves() {
 
     for expr in exprs {
         let intpr = DSLInterpreter::new(&expr);
-        let res = intpr.interpret(String::from(""));
+        let res = intpr.interpret(&String::from(""));
 
         assert_eq!(res.unwrap().to_string(), expr.to_string());
     }

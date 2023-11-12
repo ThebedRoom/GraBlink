@@ -45,29 +45,29 @@ static INPUT: Lazy<Vec<String>> = Lazy::new(|| {
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    match args.get(2) {
-        Some(x) => {
-            let gs = gen_input_data_graph(&INPUT, x.parse::<usize>().unwrap_or(1));
-            for n in 0..gs.len() {
-                let mut fname = String::from("g");
-                fname.push_str(n.to_string().as_str());
-                fname.push_str(".dot");
-                gs[n].to_dot(fname.as_str());
-            }
-        }
-        None => {
-            usage();
-        }
+    let ncols: usize = if let Some(s) = args.get(2) {
+        s.parse().unwrap_or(1)
+    } else {
+        usage();
+        panic!("Need number of columns");
+    };
+
+    let gs = gen_input_data_graph(&INPUT, ncols);
+    for n in 0..gs.len() {
+        let mut fname = String::from("g");
+        fname.push_str(n.to_string().as_str());
+        fname.push_str(".dot");
+        gs[n].to_dot(fname.as_str());
     }
 
-    // let syn = Synthesizer::new(vec!["".to_owned()], 10, 10);
+    // currently expecting 2 columns
+    let examples: Vec<(String, String)> = INPUT
+        .chunks(2)
+        .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
+        .collect();
+
+    let syn = Synthesizer::new(examples, &gs[0], 10, 10);
     // let expr = syn.synthesize("(E)");
 
-    // let expr_str = "(concat help me im stuck)";
-    // let rec_expr: RecExpr<BlinkFillDSL> = expr_str.parse().unwrap();
-
-    // println!("{}", rec_expr.pretty(10));
-
-    // let intpr = DSLInterpreter::new(&rec_expr);
-    // println!("{}", intpr.interpret(String::from("")).unwrap())
+    // println!("{}", expr.pretty(10));
 }
