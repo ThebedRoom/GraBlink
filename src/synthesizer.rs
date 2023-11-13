@@ -63,17 +63,15 @@ impl Synthesizer<'_> {
         // for all pmatches: P -> pmatch (Start) | pmatch (End)
         let pmatches = self.get_pmatch_set();
         for (i, pmatch) in pmatches.iter().enumerate() {
-            for dir in ["START", "END"] {
-                let rule: Pattern<BlinkFillDSL> = format!(
-                    "(!TERMINAL_POS {} {} {})",
-                    format!("\"{}\"", pmatch.tau),
-                    pmatch.k,
-                    format!("!TERMINAL_{}", dir)
-                )
-                .parse()
-                .unwrap();
-                rules.push(rewrite!(format!("pmatch {}_{}", i, dir); "!NONTERMINAL_P" => rule));
-            }
+            let rule: Pattern<BlinkFillDSL> = format!(
+                "(!TERMINAL_POS {} {} {})",
+                format!("\"{}\"", pmatch.tau),
+                pmatch.k,
+                "!NONTERMINAL_DIR"
+            )
+            .parse()
+            .unwrap();
+            rules.push(rewrite!(format!("pmatch {}", i); "!NONTERMINAL_P" => rule));
         }
 
         // static rules
