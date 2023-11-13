@@ -2,8 +2,6 @@ mod dsl;
 mod inputdatagraph;
 mod synthesizer;
 
-use dsl::*;
-use egg::*;
 use inputdatagraph::gen_input_data_graph;
 use once_cell::sync::Lazy;
 use std::env;
@@ -66,8 +64,8 @@ fn main() {
         .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
         .collect();
 
-    let syn = Synthesizer::new(examples, &gs[0], 10, 10);
-    // let expr = syn.synthesize("(E)");
+    let syn = Synthesizer::new(examples, &gs[1], 1, 100);
+    let expr = syn.synthesize("(!NONTERMINAL_E)");
 
-    // println!("{}", expr.pretty(10));
+    println!("{}", expr.pretty(10));
 }

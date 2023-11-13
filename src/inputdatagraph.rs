@@ -1,11 +1,11 @@
-use std::collections::{HashSet, HashMap, BTreeSet};
+use once_cell::sync::Lazy;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Display;
 use std::fs;
-use once_cell::sync::Lazy;
 use std::thread;
 
-use regex::Regex;
 use daggy::{Dag, NodeIndex, Walker};
+use regex::Regex;
 
 /// Map of token names to regular expressions.
 static TOKENS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
@@ -17,25 +17,37 @@ static TOKENS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
     tokens.insert("Alphabets", Regex::new(r"[a-zA-Z]+").unwrap());
     tokens.insert("Alphanumeric", Regex::new(r"[a-zA-Z0-9]+").unwrap());
     tokens.insert("Whitespace", Regex::new(r"\s+").unwrap());
-    tokens.insert("ProperCaseWSpaces", Regex::new(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*").unwrap());
+    tokens.insert(
+        "ProperCaseWSpaces",
+        Regex::new(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*").unwrap(),
+    );
     tokens.insert("CAPSWSpaces", Regex::new(r"[A-Z]+(?:\s+[A-Z]+)*").unwrap());
-    tokens.insert("lowercaseWSpaces", Regex::new(r"[a-z]+(?:\s+[a-z]+)*").unwrap());
-    tokens.insert("AlphabetsWSpaces", Regex::new(r"[a-zA-Z]+(?:\s+[a-zA-Z]+)*").unwrap());
+    tokens.insert(
+        "lowercaseWSpaces",
+        Regex::new(r"[a-z]+(?:\s+[a-z]+)*").unwrap(),
+    );
+    tokens.insert(
+        "AlphabetsWSpaces",
+        Regex::new(r"[a-zA-Z]+(?:\s+[a-zA-Z]+)*").unwrap(),
+    );
     tokens
 });
 
-/// Labels for edges 
+/// Labels for edges
 #[derive(PartialEq, Eq, Hash, Clone)]
 pub struct PMatch {
     /// Refers to a specific regex
-    tau: String,
+    pub tau: String,
     /// `PMatch` instance refers to the kth instance of `tau` in a string
-    k: i32,
+    pub k: i32,
 }
 
 impl PMatch {
     fn new(tau: &str, k: i32) -> Self {
-        return PMatch { tau: String::from(tau), k }
+        return PMatch {
+            tau: String::from(tau),
+            k,
+        };
     }
 }
 
@@ -66,18 +78,19 @@ pub struct InputDataGraph {
      * Nodes are weighted with hashable sets of `NodeID`s to ensure uniqueness.
      * Edges are weighted with sets of `PMatch`.
      */
-    pub dag: Dag<BTreeSet<NodeID>, HashSet<PMatch>>
+    pub dag: Dag<BTreeSet<NodeID>, HashSet<PMatch>>,
 }
 
 impl InputDataGraph {
-    /** 
+    /**
      * Generates a dag based on `s`, with positive and negative indexed `PMatch` edges for all
      * substrings of `s` and regexes in `TOKENS`
      */
     pub fn new(s: String) -> Self {
         // init dag
         let n = s.len();
-        let mut dag: Dag<BTreeSet<NodeID>, HashSet<PMatch>> = Dag::with_capacity(n+3, ((n*(n+1))/2)+2);
+        let mut dag: Dag<BTreeSet<NodeID>, HashSet<PMatch>> =
+            Dag::with_capacity(n + 3, ((n * (n + 1)) / 2) + 2);
         for i in 0..n as u32 + 3 {
             dag.add_node(BTreeSet::from([NodeID::new(s.clone(), i)]));
         }
@@ -88,26 +101,26 @@ impl InputDataGraph {
         *matchcount.entry(String::from("StartT")).or_default() += 1;
         *matchcount.entry(String::from("EndT")).or_default() += 1;
         let _ = dag.add_edge(
-            NodeIndex::new(0), 
+            NodeIndex::new(0),
             NodeIndex::new(1),
-            [PMatch::new("StartT", 1)].into()
+            [PMatch::new("StartT", 1)].into(),
         );
         let _ = dag.add_edge(
-            NodeIndex::new(s.len()+1), 
-            NodeIndex::new(s.len()+2), 
-            [PMatch::new("EndT", 1)].into()
+            NodeIndex::new(s.len() + 1),
+            NodeIndex::new(s.len() + 2),
+            [PMatch::new("EndT", 1)].into(),
         );
 
         // create substring edge labels
-        for i in 1..s.len()+1 {
-            for j in i+1..s.len()+2 {
-                let substring = &s[i-1..j-1];
+        for i in 1..s.len() + 1 {
+            for j in i + 1..s.len() + 2 {
+                let substring = &s[i - 1..j - 1];
                 let mstr = String::from("c_".to_owned() + substring);
                 *matchcount.entry(mstr.clone()).or_default() += 1;
                 let _ = dag.add_edge(
-                    NodeIndex::new(i), 
-                    NodeIndex::new(j), 
-                    [PMatch::new(mstr.as_str(), *matchcount.get(&mstr).unwrap())].into()
+                    NodeIndex::new(i),
+                    NodeIndex::new(j),
+                    [PMatch::new(mstr.as_str(), *matchcount.get(&mstr).unwrap())].into(),
                 );
             }
         }
@@ -123,9 +136,15 @@ impl InputDataGraph {
                 *matchcount.entry(kstr.clone()).or_default() += 1;
 
                 // Union the token match with the current set of tokens for this edge
-                let uniondweight = dag.edge_weight(edge).unwrap().union(
-                    &HashSet::from_iter([PMatch::new(*t, *matchcount.get(&kstr).unwrap())])
-                ).cloned().collect();
+                let uniondweight = dag
+                    .edge_weight(edge)
+                    .unwrap()
+                    .union(&HashSet::from_iter([PMatch::new(
+                        *t,
+                        *matchcount.get(&kstr).unwrap(),
+                    )]))
+                    .cloned()
+                    .collect();
                 let _ = dag.update_edge(ns, ne, uniondweight);
             }
         }
@@ -136,13 +155,17 @@ impl InputDataGraph {
             let mut negmatches = HashSet::new();
             for m in e.weight.iter() {
                 let mc = matchcount.get(&m.tau).unwrap();
-                for i in 1..mc+1 {
+                for i in 1..mc + 1 {
                     if m.k == mc - (i - 1) {
                         negmatches.insert(PMatch::new(&m.tau, -i));
                     }
                 }
             }
-            add.push((e.source(), e.target(), e.weight.union(&negmatches).cloned().collect()));
+            add.push((
+                e.source(),
+                e.target(),
+                e.weight.union(&negmatches).cloned().collect(),
+            ));
         }
 
         for e in add {
@@ -152,12 +175,14 @@ impl InputDataGraph {
         InputDataGraph { dag: dag }
     }
 
-    /** 
+    /**
      * Generates a dag based on a column of strings `col`, with positive and negative indexed `PMatch` edges for all
      * substrings of `s` and regexes in `TOKENS`
      */
     pub fn gen_graph_column(col: Vec<String>) -> InputDataGraph {
-        if col.len() == 0 { panic!("Cannot generate graph on an empty column") }
+        if col.len() == 0 {
+            panic!("Cannot generate graph on an empty column")
+        }
         let mut g = InputDataGraph::new(col[0].to_string());
         for i in col.iter().skip(1) {
             g = g.intersection(InputDataGraph::new(i.to_string()));
@@ -170,7 +195,7 @@ impl InputDataGraph {
         //         InputDataGraph::new(i)
         //     }));
         // }
-        
+
         // let mut g: Option<InputDataGraph> = None;
 
         // for i in threads.into_iter() {
@@ -182,19 +207,21 @@ impl InputDataGraph {
         // g.unwrap()
     }
 
-    /** 
+    /**
      * Finds the intersection of `self` and `other`
      */
     fn intersection(&self, other: InputDataGraph) -> InputDataGraph {
         let mut dag: Dag<BTreeSet<NodeID>, HashSet<PMatch>> = Dag::new();
         // used for preventing duplicate nodes
         let mut nmap: HashMap<BTreeSet<NodeID>, NodeIndex> = HashMap::new();
-        
+
         // generate all nodes and edges based on edge label intersections
         for e1 in self.dag.raw_edges() {
             for e2 in other.dag.raw_edges() {
                 let i: HashSet<PMatch> = e1.weight.intersection(&e2.weight).cloned().collect();
-                if i.is_empty() { continue }
+                if i.is_empty() {
+                    continue;
+                }
                 let sn1set = self.dag.node_weight(e1.source()).unwrap();
                 let sn2set = other.dag.node_weight(e2.source()).unwrap();
                 let iset: BTreeSet<NodeID> = sn1set.union(&sn2set).cloned().collect();
@@ -215,7 +242,7 @@ impl InputDataGraph {
                     tindex = dag.add_node(iset.clone());
                     nmap.insert(iset, tindex.clone());
                 }
-                let _ = dag.add_edge(sindex, tindex, i); 
+                let _ = dag.add_edge(sindex, tindex, i);
             }
         }
 
@@ -228,8 +255,9 @@ impl InputDataGraph {
      * Outputs graph in `graphviz` format to `file`
      */
     pub fn to_dot(&self, file: &str) {
-        let mut data = String::from("digraph g {\nnode [shape=rectangle]\nrankdir=\"LR\"\n\nsubgraph gg{\n\n");
-    
+        let mut data =
+            String::from("digraph g {\nnode [shape=rectangle]\nrankdir=\"LR\"\n\nsubgraph gg{\n\n");
+
         for e in self.dag.raw_edges() {
             data.push('\t');
             data.push_str(e.source().index().to_string().as_str());
@@ -245,9 +273,9 @@ impl InputDataGraph {
             }
             data.push_str("\"]\n")
         }
-    
+
         data.push_str("}\n}\n");
-        fs::write(file,data).expect("Unable to write to file");
+        fs::write(file, data).expect("Unable to write to file");
     }
 
     /**
@@ -255,7 +283,7 @@ impl InputDataGraph {
      */
     fn remove_dead_unreachable(&mut self) {
         'outer: loop {
-            for n in 0..self.dag.node_count()  {
+            for n in 0..self.dag.node_count() {
                 let i = NodeIndex::new(n);
                 if self.is_dead_or_unreachable(i) {
                     self.dag.remove_node(i);
@@ -274,17 +302,38 @@ impl InputDataGraph {
         let mut has_parents = false;
         for (e, _) in self.dag.parents(node).iter(&self.dag) {
             has_parents = true;
-            if self.dag.edge_weight(e).unwrap().contains(&PMatch::new("EndT", 1)) { return false; }
+            if self
+                .dag
+                .edge_weight(e)
+                .unwrap()
+                .contains(&PMatch::new("EndT", 1))
+            {
+                return false;
+            }
         }
         // check if children edge are final edges, or recurse
         let mut out = true;
         let mut has_start_edge = false;
         for (e, n) in self.dag.children(node).iter(&self.dag) {
-            if self.dag.edge_weight(e).unwrap().contains(&PMatch::new("StartT", 1)) { has_start_edge = true }
+            if self
+                .dag
+                .edge_weight(e)
+                .unwrap()
+                .contains(&PMatch::new("StartT", 1))
+            {
+                has_start_edge = true
+            }
             if out {
-                if self.dag.edge_weight(e).unwrap().contains(&PMatch::new("EndT", 1)) { return false; }
-                if !self.is_dead_or_unreachable(n) { 
-                    out = false; // *could* return here, but 
+                if self
+                    .dag
+                    .edge_weight(e)
+                    .unwrap()
+                    .contains(&PMatch::new("EndT", 1))
+                {
+                    return false;
+                }
+                if !self.is_dead_or_unreachable(n) {
+                    out = false; // *could* return here, but
                 }
             }
         }
@@ -303,12 +352,12 @@ pub fn gen_input_data_graph(rows: &'static Vec<String>, ncols: usize) -> Vec<Inp
     // }
     // out
     let mut threads = vec![];
-    if rows.len() % ncols != 0 { panic!("Rows are not all the same length!"); }
+    if rows.len() % ncols != 0 {
+        panic!("Rows are not all the same length!");
+    }
     for i in 0..ncols {
         let col = rows.iter().skip(i).step_by(ncols).cloned().collect();
-        threads.push(thread::spawn(|| { 
-            InputDataGraph::gen_graph_column(col) 
-        }));
+        threads.push(thread::spawn(|| InputDataGraph::gen_graph_column(col)));
     }
     threads.into_iter().map(|x| x.join().unwrap()).collect()
 }

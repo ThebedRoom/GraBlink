@@ -35,6 +35,7 @@ impl Synthesizer<'_> {
 
         let cost = SynthesisCost {
             examples: &self.examples,
+            egraph: &runner.egraph,
         };
 
         // Create an extractor with our custom cost function
@@ -42,6 +43,7 @@ impl Synthesizer<'_> {
         // Extract lowest cost expression
         let (best_cost, best) = extractor.find_best(runner.roots[0]);
         println!("{} expanded to {} with cost {}", expr, best, best_cost);
+        runner.egraph.dot().to_png("./egraph.png").unwrap();
         best // return best expr
     }
 
@@ -49,52 +51,78 @@ impl Synthesizer<'_> {
         let mut rules: Vec<Rewrite<BlinkFillDSL, ()>> = Vec::new();
 
         // dynamic concat rules
-        rules.extend((1..self.max_concat_arity).map(|n| {
-            let rule = format!("(!NONTERINAL_CONCAT {})", "!NONTERMINAL_F ".repeat(n))
-                .parse::<Pattern<BlinkFillDSL>>()
-                .unwrap();
-            rewrite!(format!("concat {}", n); "(!NONTERMINAL_E)" => rule)
+        rules.extend((1..self.max_concat_arity + 1).map(|n| {
+            let rule: Pattern<BlinkFillDSL> =
+                format!("(!NONTERMINAL_CONCAT {})", "!NONTERMINAL_F ".repeat(n))
+                    .parse()
+                    .unwrap();
+            rewrite!(format!("concat {}", n); "!NONTERMINAL_E" => rule)
         }));
 
-        // TODO: use idg to make rules for filling pos
-
-        // TODO: dynamic rules for substituting P (regex, k, dir)
-        // TODO: dynamic rules for constant str & constant pos (not sure how they are gotten)
+        // idg gives us a set of pmatches to make dynamic rewrites for
+        // for all pmatches: P -> pmatch (Start) | pmatch (End)
+        let pmatches = self.get_pmatch_set();
+        for (i, pmatch) in pmatches.iter().enumerate() {
+            for dir in ["START", "END"] {
+                let rule: Pattern<BlinkFillDSL> = format!(
+                    "(!TERMINAL_POS {} {} {})",
+                    format!("\"{}\"", pmatch.tau),
+                    pmatch.k,
+                    format!("!TERMINAL_{}", dir)
+                )
+                .parse()
+                .unwrap();
+                rules.push(rewrite!(format!("pmatch {}_{}", i, dir); "!NONTERMINAL_P" => rule));
+            }
+        }
 
         // static rules
         rules.extend(vec![
             rewrite!("F -> substr(vi, pl, pr)"; "(!NONTERMINAL_F)" => 
                 "(!NONTERMINAL_SUBSTR !NONTERMINAL_INPUT !NONTERMINAL_P !NONTERMINAL_P)"),
-            rewrite!("Dir -> Start"; "(!NONTERMINAL_DIR)" => "(!TERMINAL_START)"),
-            rewrite!("Dir -> END"; "(!NONTERMINAL_DIR)" => "(!TERMINAL_END)"),
+            rewrite!("Dir -> Start"; "(!NONTERMINAL_DIR)" => "!TERMINAL_START"),
+            rewrite!("Dir -> END"; "(!NONTERMINAL_DIR)" => "!TERMINAL_END"),
         ]);
 
         rules
+    }
+
+    fn get_pmatch_set(&self) -> Vec<&PMatch> {
+        let edges = self.idg.dag.raw_edges();
+        let mut matches: Vec<&PMatch> = Vec::new();
+        for e in edges {
+            let mch = e.weight.iter().next().unwrap(); // get random item
+            matches.push(mch);
+        }
+        matches
     }
 }
 
 struct SynthesisCost<'a> {
     examples: &'a Vec<(String, String)>,
+    egraph: &'a EGraph<BlinkFillDSL, ()>,
 }
 impl CostFunction<BlinkFillDSL> for SynthesisCost<'_> {
     type Cost = f64;
-    fn cost<C>(&mut self, enode: &BlinkFillDSL, mut costs: C) -> Self::Cost
+    fn cost<C>(&mut self, enode: &BlinkFillDSL, mut _costs: C) -> Self::Cost
     where
         C: FnMut(Id) -> Self::Cost,
     {
         let mut cost = 0.0;
-        // TODO: use interpreter on examples to make cost
-        let program: RecExpr<BlinkFillDSL> = enode.to_string().parse().unwrap();
+
+        let get_first_enode = |id| self.egraph[id].nodes[0].clone();
+        let program: RecExpr<BlinkFillDSL> = enode.build_recexpr(get_first_enode);
+        println!("Synthesized: {}", program.pretty(10));
         let intpr = DSLInterpreter::new(&program);
         for (input, output) in self.examples {
             match intpr.interpret(input) {
                 Some(o) => {
                     if o.to_string() != *output {
                         // program is not correct
-                        cost = f64::INFINITY
+                        cost += 1_000_000.0;
                     }
                 }
-                None => cost = f64::INFINITY, // program is not valid
+                None => cost += 1_000_000.0, // program is not valid
             }
         }
         // optionally, we can have lower costs for shorter programs
