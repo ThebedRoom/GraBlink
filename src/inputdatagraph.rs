@@ -40,20 +40,23 @@ pub struct PMatch {
     pub tau: String,
     /// `PMatch` instance refers to the kth instance of `tau` in a string
     pub k: i32,
+    /// If tau is a constant string rather than a token
+    pub constantstr: bool,
 }
 
 impl PMatch {
-    fn new(tau: &str, k: i32) -> Self {
+    fn new(tau: &str, k: i32, constantstr: bool) -> Self {
         return PMatch {
             tau: String::from(tau),
             k,
+            constantstr
         };
     }
 }
 
 impl Display for PMatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(\"{}\", {})", self.tau, self.k)
+        write!(f, "(\"{}\", {}, {})", self.tau, self.k, self.constantstr)
     }
 }
 
@@ -103,24 +106,29 @@ impl InputDataGraph {
         let _ = dag.add_edge(
             NodeIndex::new(0),
             NodeIndex::new(1),
-            [PMatch::new("StartT", 1)].into(),
+            [PMatch::new("StartT", 1, false)].into(),
         );
         let _ = dag.add_edge(
             NodeIndex::new(s.len() + 1),
             NodeIndex::new(s.len() + 2),
-            [PMatch::new("EndT", 1)].into(),
+            [PMatch::new("EndT", 1, false)].into(),
         );
 
         // create substring edge labels
         for i in 1..s.len() + 1 {
             for j in i + 1..s.len() + 2 {
                 let substring = &s[i - 1..j - 1];
-                let mstr = String::from("c_".to_owned() + substring);
-                *matchcount.entry(mstr.clone()).or_default() += 1;
+                *matchcount.entry(substring.to_string()).or_default() += 1;
                 let _ = dag.add_edge(
                     NodeIndex::new(i),
                     NodeIndex::new(j),
-                    [PMatch::new(mstr.as_str(), *matchcount.get(&mstr).unwrap())].into(),
+                    [
+                        PMatch::new(
+                            substring, 
+                            *matchcount.get(substring).unwrap(),
+                            true
+                        )
+                    ].into(),
                 );
             }
         }
@@ -139,10 +147,13 @@ impl InputDataGraph {
                 let uniondweight = dag
                     .edge_weight(edge)
                     .unwrap()
-                    .union(&HashSet::from_iter([PMatch::new(
-                        *t,
-                        *matchcount.get(&kstr).unwrap(),
-                    )]))
+                    .union(&HashSet::from_iter([
+                        PMatch::new(
+                            *t,
+                            *matchcount.get(&kstr).unwrap(),
+                            false
+                        )
+                    ]))
                     .cloned()
                     .collect();
                 let _ = dag.update_edge(ns, ne, uniondweight);
@@ -157,7 +168,7 @@ impl InputDataGraph {
                 let mc = matchcount.get(&m.tau).unwrap();
                 for i in 1..mc + 1 {
                     if m.k == mc - (i - 1) {
-                        negmatches.insert(PMatch::new(&m.tau, -i));
+                        negmatches.insert(PMatch::new(&m.tau, -i, m.constantstr));
                     }
                 }
             }
@@ -306,7 +317,7 @@ impl InputDataGraph {
                 .dag
                 .edge_weight(e)
                 .unwrap()
-                .contains(&PMatch::new("EndT", 1))
+                .contains(&PMatch::new("EndT", 1, false))
             {
                 return false;
             }
@@ -319,7 +330,7 @@ impl InputDataGraph {
                 .dag
                 .edge_weight(e)
                 .unwrap()
-                .contains(&PMatch::new("StartT", 1))
+                .contains(&PMatch::new("StartT", 1, false))
             {
                 has_start_edge = true
             }
@@ -328,7 +339,7 @@ impl InputDataGraph {
                     .dag
                     .edge_weight(e)
                     .unwrap()
-                    .contains(&PMatch::new("EndT", 1))
+                    .contains(&PMatch::new("EndT", 1, false))
                 {
                     return false;
                 }
