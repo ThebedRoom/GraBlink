@@ -1,5 +1,10 @@
 use egg::*;
 use regex::{Match, Regex};
+use once_cell::sync::Lazy;
+use crate::inputdatagraph::TOKENS;
+
+static STARTT: Lazy<Regex> = Lazy::new(|| Regex::new("^").unwrap() );
+static ENDT: Lazy<Regex> = Lazy::new(|| Regex::new("$").unwrap() );
 
 define_language! {
     pub enum BlinkFillDSL {
@@ -8,7 +13,7 @@ define_language! {
 
         "!NONTERMINAL_F" = F, // F -> substr(input, p, p) | constr(Symbol)
         "!NONTERMINAL_SUBSTR" = Substr([Id; 3]), // substr of (string, pos, pos)
-        "!NONTERMINAL_INPUT" = Input, // vi, current string input
+        "!TERMINAL_INPUT" = Input, // vi, current string input
         // ConstantStr(String), ???
 
         "!NONTERMINAL_P" = P, // p -> pos(token, Num, Dir) | constpos(int)
@@ -70,16 +75,17 @@ impl DSLInterpreter<'_> {
 
             // substr evaluates all children and does str[start..end+1]
             BlinkFillDSL::Substr(children) => {
-                let [vi_id, pos_id1, pos_id2] = children;
-                let vi = self.extract_strval(&self.program[*vi_id]);
+                let [_, pos_id1, pos_id2] = children;
+                let vi = Some(input);
 
                 let start_idx = match &self.program[*pos_id1] {
                     BlinkFillDSL::ConstantPos(i) => Some(*i as usize),
                     BlinkFillDSL::Pos(_) => {
                         let (r1, k1, dir1) = self.extract_pos(&self.program[*pos_id1]);
+                        println!("{}", r1.unwrap().as_str());
                         match (vi, r1, k1, dir1) {
                             (Some(v), Some(r), Some(k), Some(d)) => {
-                                Some(self.get_regex_index(v, &r, k, d))
+                                Some(self.get_regex_index(v, &r, &k, d))
                             }
                             _ => None,
                         }
@@ -93,7 +99,7 @@ impl DSLInterpreter<'_> {
                         let (r2, k2, dir2) = self.extract_pos(&self.program[*pos_id2]);
                         match (vi, r2, k2, dir2) {
                             (Some(v), Some(r), Some(k), Some(d)) => {
-                                Some(self.get_regex_index(v, &r, k, d))
+                                Some(self.get_regex_index(v, &r, &k, d))
                             }
                             _ => None,
                         }
@@ -103,6 +109,7 @@ impl DSLInterpreter<'_> {
 
                 match (vi, start_idx, end_idx) {
                     (Some(v), Some(si), Some(ei)) => {
+                        println!("{},{},{} => [{}]", v, si, ei, v[si..ei+1].to_owned());
                         Some(BlinkFillDSL::StrVal(v[si..ei + 1].to_owned()))
                     }
                     _ => None,
@@ -140,7 +147,7 @@ impl DSLInterpreter<'_> {
     fn extract_pos<'a>(
         &'a self,
         expr: &'a BlinkFillDSL,
-    ) -> (Option<Regex>, Option<&i32>, Option<&'a BlinkFillDSL>) {
+    ) -> (Option<&Regex>, Option<i32>, Option<&'a BlinkFillDSL>) {
         match expr {
             BlinkFillDSL::Pos(children) => {
                 let [r_id, k_id, dir_id] = children;
@@ -152,9 +159,15 @@ impl DSLInterpreter<'_> {
                     _ => None,
                 };
 
-                match regex {
-                    Some(r) => (Some(Regex::new(r).unwrap()), k, dir),
-                    _ => (None, k, dir),
+                if regex.unwrap_or(&String::new()) == "StartT" {
+                    (Some(&STARTT), Some(1), Some(&BlinkFillDSL::Start))
+                } else if regex.unwrap_or(&String::new()) == "EndT" {
+                    (Some(&ENDT), Some(1), Some(&BlinkFillDSL::End))
+                } else {
+                    match regex {
+                        Some(r) => (Some(TOKENS.get(r.as_str()).unwrap()), k.copied(), dir),
+                        _ => (None, k.copied(), dir),
+                    }
                 }
             }
             _ => (None, None, None),
@@ -164,19 +177,18 @@ impl DSLInterpreter<'_> {
     fn get_regex_index(&self, vi: &String, re: &Regex, k: &i32, dir: &BlinkFillDSL) -> usize {
         let matches: Vec<Match> = re.find_iter(vi).collect();
         let idx = if *k >= 0 {
-            *k
+            *k - 1
         } else {
             (matches.len() as i32) + *k
         };
+
+        let chosen_match = matches.iter().nth(idx as usize);
         match dir {
             BlinkFillDSL::Start => {
-                let chosen_match = matches.iter().nth(idx as usize);
                 chosen_match.unwrap().start()
             }
             BlinkFillDSL::End => {
-                let mut rmatches = matches.iter().rev();
-                let chosen_match = rmatches.nth(idx as usize);
-                chosen_match.unwrap().start()
+                chosen_match.unwrap().end() - 1
             }
 
             _ => panic!("Expected Dir"),

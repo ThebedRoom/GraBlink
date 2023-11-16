@@ -16,21 +16,21 @@ fn test_concat_toplevel_concatenates() {
 #[test]
 fn test_substr_gets_correct_indices() {
     let expr: RecExpr<BlinkFillDSL> = r#"
-        (!NONTERMINAL_SUBSTR "abc1def1ghi1jkl1mno"
-            (!TERMINAL_POS "\d+" 1 !TERMINAL_START) 
-            (!TERMINAL_POS "\d+" -3 !TERMINAL_END))"#
+        (!NONTERMINAL_SUBSTR !TERMINAL_INPUT
+            (!TERMINAL_POS Digits 2 !TERMINAL_START) 
+            (!TERMINAL_POS Digits -2 !TERMINAL_END))"#
         .parse()
         .unwrap();
     let intpr = DSLInterpreter::new(&expr);
     assert_eq!(
-        intpr.interpret(&String::from("")).unwrap().to_string(),
+        intpr.interpret(&String::from("abc1def1ghi1jkl1mno")).unwrap().to_string(),
         "1ghi1"
     )
 }
 
 #[test]
 fn test_input_outputs_input() {
-    let expr: RecExpr<BlinkFillDSL> = "(!NONTERMINAL_INPUT)".parse().unwrap();
+    let expr: RecExpr<BlinkFillDSL> = "(!TERMINAL_INPUT)".parse().unwrap();
     let intpr = DSLInterpreter::new(&expr);
     assert_eq!(
         intpr

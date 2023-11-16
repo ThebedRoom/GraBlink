@@ -18,7 +18,7 @@ fn usage() {
 /*
  * Get input from file. Columns should be semicolon delimited. 1 row per line
  */
-static INPUT: Lazy<Vec<String>> = Lazy::new(|| {
+pub static INPUT: Lazy<Vec<String>> = Lazy::new(|| {
     let mut out: Vec<String> = vec![];
     let args: Vec<String> = env::args().collect();
     match args.get(1) {
@@ -66,6 +66,6 @@ fn main() {
 
     let syn = Synthesizer::new(examples, &gs[1], 1, 100);
     let expr = syn.synthesize("(!NONTERMINAL_E)");
-
     println!("{}", expr.pretty(10));
+
 }

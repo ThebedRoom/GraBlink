@@ -64,12 +64,13 @@ impl Synthesizer<'_> {
         let pmatches = self.get_pmatch_set();
         for (i, pmatch) in pmatches.iter().enumerate() {
             if pmatch.constantstr {
+                // This is absoLUTEly going to cause an issue if the constant string happens to also be a grammar production
                 let rule: Pattern<BlinkFillDSL> = pmatch.tau.parse().unwrap();
                 rules.push(rewrite!(format!("pmatch {}", i); "!NONTERMINAL_F" => rule));
             } else {
                 let rule: Pattern<BlinkFillDSL> = format!(
                     "(!TERMINAL_POS {} {} {})",
-                    format!("\"{}\"", pmatch.tau),
+                    pmatch.tau,
                     pmatch.k,
                     "!NONTERMINAL_DIR"
                 )
@@ -82,7 +83,7 @@ impl Synthesizer<'_> {
         // static rules
         rules.extend(vec![
             rewrite!("F -> substr(vi, pl, pr)"; "(!NONTERMINAL_F)" => 
-                "(!NONTERMINAL_SUBSTR !NONTERMINAL_INPUT !NONTERMINAL_P !NONTERMINAL_P)"),
+                "(!NONTERMINAL_SUBSTR !TERMINAL_INPUT !NONTERMINAL_P !NONTERMINAL_P)"),
             rewrite!("Dir -> Start"; "(!NONTERMINAL_DIR)" => "!TERMINAL_START"),
             rewrite!("Dir -> END"; "(!NONTERMINAL_DIR)" => "!TERMINAL_END"),
         ]);
@@ -107,16 +108,39 @@ struct SynthesisCost<'a> {
 }
 impl CostFunction<BlinkFillDSL> for SynthesisCost<'_> {
     type Cost = f64;
+    // this function gives a cost for individual nodes.
     fn cost<C>(&mut self, enode: &BlinkFillDSL, mut _costs: C) -> Self::Cost
     where
         C: FnMut(Id) -> Self::Cost,
     {
         let mut cost = 0.0;
+        match enode {
+            BlinkFillDSL::E => { cost += 1_000_000.0; }
+            BlinkFillDSL::F => { cost += 1_000_000.0; }
+            BlinkFillDSL::P => { cost += 1_000_000.0; }
+            BlinkFillDSL::Dir => { cost += 1_000_000.0; }
+            BlinkFillDSL::Pos(ids) => {
+                cost += _costs(ids[2]);
+            }
+            BlinkFillDSL::Concat(ids) => {
+                for n in ids.iter() {
+                    cost += _costs(*n);
+                }
+            }
+            BlinkFillDSL::Substr(ids) => {
+                cost += _costs(ids[1]) + _costs(ids[2]);
+            }
+            _ => {}
+        }
 
-        let get_first_enode = |id| self.egraph[id].nodes[0].clone();
-        let program: RecExpr<BlinkFillDSL> = enode.build_recexpr(get_first_enode);
-        println!("Synthesized: {}", program.pretty(10));
-        let intpr = DSLInterpreter::new(&program);
+        cost
+    }
+
+    // the extractor never calls this function
+    fn cost_rec(&mut self, expr: &RecExpr<BlinkFillDSL>) -> Self::Cost {
+        let mut cost = 0.0;
+        println!("Synthesized: {}", expr.pretty(10));
+        let intpr = DSLInterpreter::new(&expr);
         for (input, output) in self.examples {
             match intpr.interpret(input) {
                 Some(o) => {
@@ -129,7 +153,7 @@ impl CostFunction<BlinkFillDSL> for SynthesisCost<'_> {
             }
         }
         // optionally, we can have lower costs for shorter programs
-        cost += program.as_ref().len() as f64;
+        cost += expr.as_ref().len() as f64;
 
         cost
     }

@@ -8,7 +8,7 @@ use daggy::{Dag, NodeIndex, Walker};
 use regex::Regex;
 
 /// Map of token names to regular expressions.
-static TOKENS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
+pub(crate) static TOKENS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
     let mut tokens = HashMap::new();
     tokens.insert("ProperCase", Regex::new(r"[A-Z][a-z]+").unwrap());
     tokens.insert("CAPS", Regex::new(r"[A-Z]+").unwrap());
