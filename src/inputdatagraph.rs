@@ -80,7 +80,7 @@ impl NodeID {
     }
 
     pub fn is_last(&self) -> bool {
-        self.i as usize == self.s.len()
+        self.i as usize == self.s.len() + 2
     }
 }
 
@@ -141,28 +141,18 @@ impl<
     /**
      * Finds the intersection of `self` and `other`
      */
-    fn intersection(&self, other: InputDataGraph<T>) -> InputDataGraph<T> {
+    fn intersection(&self, other: InputDataGraph<T>, with_deletions: bool) -> InputDataGraph<T> {
         let mut dag: Dag<BTreeSet<NodeID>, T> = Dag::new();
         // used for preventing duplicate nodes
         let mut nmap: HashMap<BTreeSet<NodeID>, NodeIndex> = HashMap::new();
 
         // generate all nodes and edges based on edge label intersections
-        // println!("ecount: {},{}",self.dag.edge_count(),other.dag.edge_count());
         for e1 in self.dag.raw_edges() {
             for e2 in other.dag.raw_edges() {
                 let i: T = e1.weight.intersection(&e2.weight).cloned().collect();
                 if i.is_empty() {
                     continue;
                 }
-                // print!("\te1:");
-                // for e1s in e1.weight.iter() {
-                //     print!("{},", e1s);
-                // }
-                // print!("\n\te2:");
-                // for e2s in e2.weight.iter() {
-                //     print!("{},", e2s);
-                // }
-                // println!("\n");
                 let sn1set = self.dag.node_weight(e1.source()).unwrap();
                 let sn2set = other.dag.node_weight(e2.source()).unwrap();
                 let iset: BTreeSet<NodeID> = sn1set.union(&sn2set).cloned().collect();
@@ -188,7 +178,7 @@ impl<
         }
 
         let mut out = InputDataGraph { dag: dag };
-        out.remove_dead_unreachable();
+        if with_deletions { out.remove_dead_unreachable(); }
         out
     }
 
@@ -362,13 +352,13 @@ impl InputDataGraph<HashSet<PMatch>> {
      * Generates a dag based on a column of strings `col`, with positive and negative indexed `PMatch` edges for all
      * substrings of `s` and regexes in `TOKENS`
      */
-    pub fn gen_graph_column(col: Vec<String>) -> InputDataGraph<HashSet<PMatch>> {
+    pub fn gen_graph_column(col: Vec<String>, with_deletions: bool) -> InputDataGraph<HashSet<PMatch>> {
         if col.len() == 0 {
             panic!("Cannot generate graph on an empty column")
         }
         let mut g = InputDataGraph::new(col[0].to_string());
         for i in col.iter().skip(1) {
-            g = g.intersection(InputDataGraph::new(i.to_string()));
+            g = g.intersection(InputDataGraph::new(i.to_string()), with_deletions);
         }
         g
         // let mut threads = vec![];
@@ -394,10 +384,14 @@ impl InputDataGraph<HashSet<PMatch>> {
 /**
  * Generates an `InputDataGraph` for each column from the vector of concatenated `rows`
  */
+<<<<<<< HEAD
 pub fn gen_input_data_graph(
     rows: &'static Vec<String>,
     ncols: usize,
 ) -> Vec<InputDataGraph<HashSet<PMatch>>> {
+=======
+pub fn gen_input_data_graph(rows: &'static Vec<String>, ncols: usize, with_deletions: bool) -> Vec<InputDataGraph<HashSet<PMatch>>> {
+>>>>>>> 6ce7298500301683b4b4cf2de735ef964bb5d13d
     // let mut out = vec![];
     // for i in 0..ncols {
     //     out.push(InputDataGraph::gen_graph_column(rows.iter().skip(i).step_by(ncols).cloned().collect()));
@@ -409,7 +403,7 @@ pub fn gen_input_data_graph(
     }
     for i in 0..ncols {
         let col = rows.iter().skip(i).step_by(ncols).cloned().collect();
-        threads.push(thread::spawn(|| InputDataGraph::gen_graph_column(col)));
+        threads.push(thread::spawn(move || InputDataGraph::gen_graph_column(col, with_deletions)));
     }
     threads.into_iter().map(|x| x.join().unwrap()).collect()
 }
