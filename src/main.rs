@@ -55,7 +55,7 @@ fn main() {
         let mut fname = String::from("g");
         fname.push_str(n.to_string().as_str());
         fname.push_str(".dot");
-        gs[n].to_dot(fname.as_str());
+        gs[n].to_dot(fname.as_str(), false);
     }
 
     // currently expecting 2 columns

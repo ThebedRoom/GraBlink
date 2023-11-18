@@ -80,7 +80,7 @@ impl NodeID {
     }
 
     pub fn is_last(&self) -> bool {
-        self.i as usize == self.s.len()
+        self.i as usize == self.s.len() + 2
     }
 }
 
@@ -138,22 +138,12 @@ impl<T: for<'a>Intersectable<'a, T> + Clone +
         let mut nmap: HashMap<BTreeSet<NodeID>, NodeIndex> = HashMap::new();
 
         // generate all nodes and edges based on edge label intersections
-        println!("ecount: {},{}",self.dag.edge_count(),other.dag.edge_count());
         for e1 in self.dag.raw_edges() {
             for e2 in other.dag.raw_edges() {
                 let i: T = e1.weight.intersection(&e2.weight).cloned().collect();
                 if i.is_empty() {
                     continue;
                 }
-                print!("\te1:");
-                for e1s in e1.weight.iter() {
-                    print!("{},",e1s);
-                }
-                print!("\n\te2:");
-                for e2s in e2.weight.iter() {
-                    print!("{},",e2s);
-                }
-                println!("\n");
                 let sn1set = self.dag.node_weight(e1.source()).unwrap();
                 let sn2set = other.dag.node_weight(e2.source()).unwrap();
                 let iset: BTreeSet<NodeID> = sn1set.union(&sn2set).cloned().collect();
