@@ -1,10 +1,11 @@
 use once_cell::sync::Lazy;
+use std::collections::hash_map::RandomState;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Display;
 use std::fs;
 use std::thread;
 
-use daggy::{Dag, NodeIndex, Walker};
+use daggy::{Dag, NodeIndex, EdgeIndex, Walker};
 use regex::Regex;
 
 /// Map of token names to regular expressions.
@@ -56,7 +57,7 @@ impl PMatch {
 
 impl Display for PMatch {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(\"{}\", {}, {})", self.tau, self.k, self.constantstr)
+        write!(f, "({}, {}, {})", self.tau, self.k, self.constantstr)
     }
 }
 
@@ -73,18 +74,187 @@ impl NodeID {
     pub fn new(s: String, i: u32) -> Self {
         NodeID { s, i }
     }
+
+    pub fn is_first(&self) -> bool {
+        self.i == 0
+    }
+
+    pub fn is_last(&self) -> bool {
+        self.i as usize == self.s.len()
+    }
+}
+
+impl Display for NodeID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({},{})", self.s, self.i)
+    }
+}
+
+/**
+ * `H` is an iterable that implements an `intersection`, `is_empty`, and `iter` method
+ */
+pub trait Intersectable<'a, H, S = RandomState> {
+    /// The type stored in the iterable
+    type Item: std::fmt::Display + PartialEq + Eq + std::hash::Hash + Clone;
+    fn intersection(&'a self, other: &'a H) -> std::collections::hash_set::Intersection<'a, Self::Item, S>;
+    fn is_empty(&self) -> bool;
+    fn iter(&self) -> std::collections::hash_set::Iter<'_, Self::Item>;
+}
+
+impl<'a, T: std::fmt::Display + PartialEq + Eq + 
+        std::hash::Hash + Clone> Intersectable<'a, HashSet<T>> for HashSet<T> {
+    type Item = T;
+    fn intersection(&'a self, other: &'a HashSet<T>) -> std::collections::hash_set::Intersection<'a, Self::Item, RandomState> {
+        self.intersection(other)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.is_empty()
+    }
+
+    fn iter(&self) -> std::collections::hash_set::Iter<'_, Self::Item> {
+        self.iter()
+    }
 }
 
 /// Wrapper for a daggy::Dag
-pub struct InputDataGraph {
+pub struct InputDataGraph<H: for<'a> Intersectable<'a, H>> 
+{
     /**
      * Nodes are weighted with hashable sets of `NodeID`s to ensure uniqueness.
-     * Edges are weighted with sets of `PMatch`.
      */
-    pub dag: Dag<BTreeSet<NodeID>, HashSet<PMatch>>,
+    pub dag: Dag<BTreeSet<NodeID>, H>,
 }
 
-impl InputDataGraph {
+impl<T: for<'a>Intersectable<'a, T> + Clone + 
+        for<'a>std::iter::FromIterator<<T as Intersectable<'a, T>>::Item>> InputDataGraph<T> 
+{
+    /**
+     * Finds the intersection of `self` and `other`
+     */
+    fn intersection(&self, other: InputDataGraph<T>) -> InputDataGraph<T> {
+        let mut dag: Dag<BTreeSet<NodeID>, T> = Dag::new();
+        // used for preventing duplicate nodes
+        let mut nmap: HashMap<BTreeSet<NodeID>, NodeIndex> = HashMap::new();
+
+        // generate all nodes and edges based on edge label intersections
+        println!("ecount: {},{}",self.dag.edge_count(),other.dag.edge_count());
+        for e1 in self.dag.raw_edges() {
+            for e2 in other.dag.raw_edges() {
+                let i: T = e1.weight.intersection(&e2.weight).cloned().collect();
+                if i.is_empty() {
+                    continue;
+                }
+                print!("\te1:");
+                for e1s in e1.weight.iter() {
+                    print!("{},",e1s);
+                }
+                print!("\n\te2:");
+                for e2s in e2.weight.iter() {
+                    print!("{},",e2s);
+                }
+                println!("\n");
+                let sn1set = self.dag.node_weight(e1.source()).unwrap();
+                let sn2set = other.dag.node_weight(e2.source()).unwrap();
+                let iset: BTreeSet<NodeID> = sn1set.union(&sn2set).cloned().collect();
+                let sindex: NodeIndex;
+                if nmap.contains_key(&iset) {
+                    sindex = nmap.get(&iset).cloned().unwrap();
+                } else {
+                    sindex = dag.add_node(iset.clone());
+                    nmap.insert(iset, sindex.clone());
+                }
+                let tn1set = self.dag.node_weight(e1.target()).unwrap();
+                let tn2set = other.dag.node_weight(e2.target()).unwrap();
+                let iset: BTreeSet<NodeID> = tn1set.union(&tn2set).cloned().collect();
+                let tindex: NodeIndex;
+                if nmap.contains_key(&iset) {
+                    tindex = nmap.get(&iset).cloned().unwrap();
+                } else {
+                    tindex = dag.add_node(iset.clone());
+                    nmap.insert(iset, tindex.clone());
+                }
+                let _ = dag.add_edge(sindex, tindex, i);
+            }
+        }
+
+        let mut out = InputDataGraph { dag: dag };
+        out.remove_dead_unreachable();
+        out
+    }
+
+    /**
+     * Removes nodes and edges that cannot be reached from the start state, or cannot reach the final state
+     */
+    fn remove_dead_unreachable(&mut self) {
+        'outer: loop {
+            for n in 0..self.dag.node_count() {
+                let i = NodeIndex::new(n);
+                if self.is_dead_or_unreachable(i) {
+                    self.dag.remove_node(i);
+                    continue 'outer;
+                }
+            }
+            break;
+        }
+    }
+
+    /**
+     * Checks if a node is is dead or unreachable
+     */
+    fn is_dead_or_unreachable(&self, node: NodeIndex) -> bool {
+        let ids = self.dag.node_weight(node).unwrap();
+        let id = ids.first().unwrap();
+        let parents: HashMap<EdgeIndex, NodeIndex> = 
+            self.dag.parents(node)
+            .iter(&self.dag)
+            .collect();
+        let children: HashMap<EdgeIndex, NodeIndex> = 
+            self.dag.children(node)
+            .iter(&self.dag)
+            .collect();
+        (!id.is_first() && parents.len() == 0) || (!id.is_last() && children.len() == 0)
+    }
+
+    /**
+     * Outputs graph in `graphviz` format to `file`
+     */
+    pub fn to_dot(&self, file: &str, show_node_ids: bool) {
+        let mut data =
+            String::from("digraph g {\nnode [shape=rectangle]\nrankdir=\"LR\"\n\nsubgraph gg{\n\n");
+
+        for e in self.dag.raw_edges() {
+            data.push('\t');
+            if show_node_ids {
+                data.push_str(e.source().index().to_string().as_str());
+                data.push_str(" [label=\"");
+                for nid in self.dag.node_weight(e.source()).unwrap() {
+                    data.push_str(nid.to_string().as_str());
+                }
+                data.push_str("\"]\n");
+                data.push_str(e.target().index().to_string().as_str());
+                data.push_str(" [label=\"");
+                for nid in self.dag.node_weight(e.target()).unwrap() {
+                    data.push_str(nid.to_string().as_str());
+                }
+                data.push_str("\"]\n");
+            }
+            data.push_str(e.source().index().to_string().as_str());
+            data.push_str(" -> ");
+            data.push_str(e.target().index().to_string().as_str());
+            data.push_str(" [label=\"");
+            for s in e.weight.iter() {
+                data.push_str(s.to_string().as_str());
+            }
+            data.push_str("\"]\n")
+        }
+
+        data.push_str("}\n}\n");
+        fs::write(file, data).expect("Unable to write to file");
+    }
+}
+
+impl InputDataGraph<HashSet<PMatch>> {
     /**
      * Generates a dag based on `s`, with positive and negative indexed `PMatch` edges for all
      * substrings of `s` and regexes in `TOKENS`
@@ -190,7 +360,7 @@ impl InputDataGraph {
      * Generates a dag based on a column of strings `col`, with positive and negative indexed `PMatch` edges for all
      * substrings of `s` and regexes in `TOKENS`
      */
-    pub fn gen_graph_column(col: Vec<String>) -> InputDataGraph {
+    pub fn gen_graph_column(col: Vec<String>) -> InputDataGraph<HashSet<PMatch>> {
         if col.len() == 0 {
             panic!("Cannot generate graph on an empty column")
         }
@@ -217,146 +387,12 @@ impl InputDataGraph {
         // }
         // g.unwrap()
     }
-
-    /**
-     * Finds the intersection of `self` and `other`
-     */
-    fn intersection(&self, other: InputDataGraph) -> InputDataGraph {
-        let mut dag: Dag<BTreeSet<NodeID>, HashSet<PMatch>> = Dag::new();
-        // used for preventing duplicate nodes
-        let mut nmap: HashMap<BTreeSet<NodeID>, NodeIndex> = HashMap::new();
-
-        // generate all nodes and edges based on edge label intersections
-        for e1 in self.dag.raw_edges() {
-            for e2 in other.dag.raw_edges() {
-                let i: HashSet<PMatch> = e1.weight.intersection(&e2.weight).cloned().collect();
-                if i.is_empty() {
-                    continue;
-                }
-                let sn1set = self.dag.node_weight(e1.source()).unwrap();
-                let sn2set = other.dag.node_weight(e2.source()).unwrap();
-                let iset: BTreeSet<NodeID> = sn1set.union(&sn2set).cloned().collect();
-                let sindex: NodeIndex;
-                if nmap.contains_key(&iset) {
-                    sindex = nmap.get(&iset).cloned().unwrap();
-                } else {
-                    sindex = dag.add_node(iset.clone());
-                    nmap.insert(iset, sindex.clone());
-                }
-                let tn1set = self.dag.node_weight(e1.target()).unwrap();
-                let tn2set = other.dag.node_weight(e2.target()).unwrap();
-                let iset: BTreeSet<NodeID> = tn1set.union(&tn2set).cloned().collect();
-                let tindex: NodeIndex;
-                if nmap.contains_key(&iset) {
-                    tindex = nmap.get(&iset).cloned().unwrap();
-                } else {
-                    tindex = dag.add_node(iset.clone());
-                    nmap.insert(iset, tindex.clone());
-                }
-                let _ = dag.add_edge(sindex, tindex, i);
-            }
-        }
-
-        let mut out = InputDataGraph { dag: dag };
-        out.remove_dead_unreachable();
-        out
-    }
-
-    /**
-     * Outputs graph in `graphviz` format to `file`
-     */
-    pub fn to_dot(&self, file: &str) {
-        let mut data =
-            String::from("digraph g {\nnode [shape=rectangle]\nrankdir=\"LR\"\n\nsubgraph gg{\n\n");
-
-        for e in self.dag.raw_edges() {
-            data.push('\t');
-            data.push_str(e.source().index().to_string().as_str());
-            data.push_str(" -> ");
-            data.push_str(e.target().index().to_string().as_str());
-            data.push_str(" [label=\"");
-            for s in e.weight.iter() {
-                data.push('(');
-                data.push_str(s.tau.as_str());
-                data.push(',');
-                data.push_str(s.k.to_string().as_str());
-                data.push(')');
-            }
-            data.push_str("\"]\n")
-        }
-
-        data.push_str("}\n}\n");
-        fs::write(file, data).expect("Unable to write to file");
-    }
-
-    /**
-     * Removes nodes and edges that cannot be reached from the start state, or cannot reach the final state
-     */
-    fn remove_dead_unreachable(&mut self) {
-        'outer: loop {
-            for n in 0..self.dag.node_count() {
-                let i = NodeIndex::new(n);
-                if self.is_dead_or_unreachable(i) {
-                    self.dag.remove_node(i);
-                    continue 'outer;
-                }
-            }
-            break;
-        }
-    }
-
-    /**
-     * Checks if a node is is dead or unreachable
-     */
-    fn is_dead_or_unreachable(&self, node: NodeIndex) -> bool {
-        // check if parent edge is final edge
-        let mut has_parents = false;
-        for (e, _) in self.dag.parents(node).iter(&self.dag) {
-            has_parents = true;
-            if self
-                .dag
-                .edge_weight(e)
-                .unwrap()
-                .contains(&PMatch::new("EndT", 1, false))
-            {
-                return false;
-            }
-        }
-        // check if children edge are final edges, or recurse
-        let mut out = true;
-        let mut has_start_edge = false;
-        for (e, n) in self.dag.children(node).iter(&self.dag) {
-            if self
-                .dag
-                .edge_weight(e)
-                .unwrap()
-                .contains(&PMatch::new("StartT", 1, false))
-            {
-                has_start_edge = true
-            }
-            if out {
-                if self
-                    .dag
-                    .edge_weight(e)
-                    .unwrap()
-                    .contains(&PMatch::new("EndT", 1, false))
-                {
-                    return false;
-                }
-                if !self.is_dead_or_unreachable(n) {
-                    out = false; // *could* return here, but
-                }
-            }
-        }
-
-        out || (!has_parents && !has_start_edge)
-    }
 }
 
 /**
  * Generates an `InputDataGraph` for each column from the vector of concatenated `rows`
  */
-pub fn gen_input_data_graph(rows: &'static Vec<String>, ncols: usize) -> Vec<InputDataGraph> {
+pub fn gen_input_data_graph(rows: &'static Vec<String>, ncols: usize) -> Vec<InputDataGraph<HashSet<PMatch>>> {
     // let mut out = vec![];
     // for i in 0..ncols {
     //     out.push(InputDataGraph::gen_graph_column(rows.iter().skip(i).step_by(ncols).cloned().collect()));

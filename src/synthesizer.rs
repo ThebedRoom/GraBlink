@@ -1,18 +1,19 @@
 use crate::dsl::{BlinkFillDSL, DSLInterpreter};
 use crate::inputdatagraph::{InputDataGraph, PMatch};
+use std::collections::HashSet;
 use egg::*;
 
 pub struct Synthesizer<'a> {
     examples: Vec<(String, String)>,
-    idg: &'a InputDataGraph,
+    idg: &'a InputDataGraph<HashSet<PMatch>>,
     max_concat_arity: usize,
     iter_limit: usize,
 }
 
-impl Synthesizer<'_> {
+impl<'a> Synthesizer<'a> {
     pub fn new(
         examples: Vec<(String, String)>,
-        idg: &InputDataGraph,
+        idg: &InputDataGraph<HashSet<PMatch>>,
         max_concat_arity: usize,
         iter_limit: usize,
     ) -> Synthesizer {
