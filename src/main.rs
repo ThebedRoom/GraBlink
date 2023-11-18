@@ -50,7 +50,7 @@ fn main() {
         panic!("Need number of columns");
     };
 
-    let gs = gen_input_data_graph(&INPUT, ncols);
+    let gs = gen_input_data_graph(&INPUT, ncols, true);
     for n in 0..gs.len() {
         let mut fname = String::from("g");
         fname.push_str(n.to_string().as_str());
