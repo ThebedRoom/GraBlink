@@ -1,25 +1,21 @@
-use egg::*;
-use regex::{Match, Regex};
-use once_cell::sync::Lazy;
 use crate::inputdatagraph::TOKENS;
+use egg::*;
+use once_cell::sync::Lazy;
+use regex::{Match, Regex};
 
-static STARTT: Lazy<Regex> = Lazy::new(|| Regex::new("^").unwrap() );
-static ENDT: Lazy<Regex> = Lazy::new(|| Regex::new("$").unwrap() );
+static STARTT: Lazy<Regex> = Lazy::new(|| Regex::new("^").unwrap());
+static ENDT: Lazy<Regex> = Lazy::new(|| Regex::new("$").unwrap());
 
 define_language! {
     pub enum BlinkFillDSL {
-        "!NONTERMINAL_E" = E, // E -> concat(f1, f2, ...)
         "!NONTERMINAL_CONCAT" = Concat(Box<[Id]>),
 
-        "!NONTERMINAL_F" = F, // F -> substr(input, p, p) | constr(Symbol)
         "!NONTERMINAL_SUBSTR" = Substr([Id; 3]), // substr of (string, pos, pos)
         "!TERMINAL_INPUT" = Input, // vi, current string input
         // ConstantStr(String), ???
 
-        "!NONTERMINAL_P" = P, // p -> pos(token, Num, Dir) | constpos(int)
         "!TERMINAL_POS" = Pos([Id; 3]), // pos of (token, k, dir)
 
-        "!NONTERMINAL_DIR" = Dir, // Dir -> Start | End
         "!TERMINAL_START" = Start,
         "!TERMINAL_END" = End,
 
@@ -44,12 +40,6 @@ impl DSLInterpreter<'_> {
 
     fn eval(&self, expr: &BlinkFillDSL, input: &String) -> Option<BlinkFillDSL> {
         match expr {
-            // lhs nonterminals cannot be evaluated, so they are None
-            BlinkFillDSL::E => None,
-            BlinkFillDSL::F => None,
-            BlinkFillDSL::P => None,
-            BlinkFillDSL::Dir => None,
-
             // concat evaluates all children then concatenates them
             BlinkFillDSL::Concat(_) => {
                 let vals = expr
@@ -109,7 +99,7 @@ impl DSLInterpreter<'_> {
 
                 match (vi, start_idx, end_idx) {
                     (Some(v), Some(si), Some(ei)) => {
-                        println!("{},{},{} => [{}]", v, si, ei, v[si..ei+1].to_owned());
+                        println!("{},{},{} => [{}]", v, si, ei, v[si..ei + 1].to_owned());
                         Some(BlinkFillDSL::StrVal(v[si..ei + 1].to_owned()))
                     }
                     _ => None,
@@ -184,12 +174,8 @@ impl DSLInterpreter<'_> {
 
         let chosen_match = matches.iter().nth(idx as usize);
         match dir {
-            BlinkFillDSL::Start => {
-                chosen_match.unwrap().start()
-            }
-            BlinkFillDSL::End => {
-                chosen_match.unwrap().end() - 1
-            }
+            BlinkFillDSL::Start => chosen_match.unwrap().start(),
+            BlinkFillDSL::End => chosen_match.unwrap().end() - 1,
 
             _ => panic!("Expected Dir"),
         }

@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::fs;
 use std::thread;
 
-use daggy::{Dag, NodeIndex, EdgeIndex, Walker};
+use daggy::{Dag, EdgeIndex, NodeIndex, Walker};
 use regex::Regex;
 
 /// Map of token names to regular expressions.
@@ -50,7 +50,7 @@ impl PMatch {
         return PMatch {
             tau: String::from(tau),
             k,
-            constantstr
+            constantstr,
         };
     }
 }
@@ -96,15 +96,22 @@ impl Display for NodeID {
 pub trait Intersectable<'a, H, S = RandomState> {
     /// The type stored in the iterable
     type Item: std::fmt::Display + PartialEq + Eq + std::hash::Hash + Clone;
-    fn intersection(&'a self, other: &'a H) -> std::collections::hash_set::Intersection<'a, Self::Item, S>;
+    fn intersection(
+        &'a self,
+        other: &'a H,
+    ) -> std::collections::hash_set::Intersection<'a, Self::Item, S>;
     fn is_empty(&self) -> bool;
     fn iter(&self) -> std::collections::hash_set::Iter<'_, Self::Item>;
 }
 
-impl<'a, T: std::fmt::Display + PartialEq + Eq + 
-        std::hash::Hash + Clone> Intersectable<'a, HashSet<T>> for HashSet<T> {
+impl<'a, T: std::fmt::Display + PartialEq + Eq + std::hash::Hash + Clone>
+    Intersectable<'a, HashSet<T>> for HashSet<T>
+{
     type Item = T;
-    fn intersection(&'a self, other: &'a HashSet<T>) -> std::collections::hash_set::Intersection<'a, Self::Item, RandomState> {
+    fn intersection(
+        &'a self,
+        other: &'a HashSet<T>,
+    ) -> std::collections::hash_set::Intersection<'a, Self::Item, RandomState> {
         self.intersection(other)
     }
 
@@ -118,16 +125,18 @@ impl<'a, T: std::fmt::Display + PartialEq + Eq +
 }
 
 /// Wrapper for a daggy::Dag
-pub struct InputDataGraph<H: for<'a> Intersectable<'a, H>> 
-{
+pub struct InputDataGraph<H: for<'a> Intersectable<'a, H>> {
     /**
      * Nodes are weighted with hashable sets of `NodeID`s to ensure uniqueness.
      */
     pub dag: Dag<BTreeSet<NodeID>, H>,
 }
 
-impl<T: for<'a>Intersectable<'a, T> + Clone + 
-        for<'a>std::iter::FromIterator<<T as Intersectable<'a, T>>::Item>> InputDataGraph<T> 
+impl<
+        T: for<'a> Intersectable<'a, T>
+            + Clone
+            + for<'a> std::iter::FromIterator<<T as Intersectable<'a, T>>::Item>,
+    > InputDataGraph<T>
 {
     /**
      * Finds the intersection of `self` and `other`
@@ -138,22 +147,22 @@ impl<T: for<'a>Intersectable<'a, T> + Clone +
         let mut nmap: HashMap<BTreeSet<NodeID>, NodeIndex> = HashMap::new();
 
         // generate all nodes and edges based on edge label intersections
-        println!("ecount: {},{}",self.dag.edge_count(),other.dag.edge_count());
+        // println!("ecount: {},{}",self.dag.edge_count(),other.dag.edge_count());
         for e1 in self.dag.raw_edges() {
             for e2 in other.dag.raw_edges() {
                 let i: T = e1.weight.intersection(&e2.weight).cloned().collect();
                 if i.is_empty() {
                     continue;
                 }
-                print!("\te1:");
-                for e1s in e1.weight.iter() {
-                    print!("{},",e1s);
-                }
-                print!("\n\te2:");
-                for e2s in e2.weight.iter() {
-                    print!("{},",e2s);
-                }
-                println!("\n");
+                // print!("\te1:");
+                // for e1s in e1.weight.iter() {
+                //     print!("{},", e1s);
+                // }
+                // print!("\n\te2:");
+                // for e2s in e2.weight.iter() {
+                //     print!("{},", e2s);
+                // }
+                // println!("\n");
                 let sn1set = self.dag.node_weight(e1.source()).unwrap();
                 let sn2set = other.dag.node_weight(e2.source()).unwrap();
                 let iset: BTreeSet<NodeID> = sn1set.union(&sn2set).cloned().collect();
@@ -205,14 +214,10 @@ impl<T: for<'a>Intersectable<'a, T> + Clone +
     fn is_dead_or_unreachable(&self, node: NodeIndex) -> bool {
         let ids = self.dag.node_weight(node).unwrap();
         let id = ids.first().unwrap();
-        let parents: HashMap<EdgeIndex, NodeIndex> = 
-            self.dag.parents(node)
-            .iter(&self.dag)
-            .collect();
-        let children: HashMap<EdgeIndex, NodeIndex> = 
-            self.dag.children(node)
-            .iter(&self.dag)
-            .collect();
+        let parents: HashMap<EdgeIndex, NodeIndex> =
+            self.dag.parents(node).iter(&self.dag).collect();
+        let children: HashMap<EdgeIndex, NodeIndex> =
+            self.dag.children(node).iter(&self.dag).collect();
         (!id.is_first() && parents.len() == 0) || (!id.is_last() && children.len() == 0)
     }
 
@@ -292,13 +297,12 @@ impl InputDataGraph<HashSet<PMatch>> {
                 let _ = dag.add_edge(
                     NodeIndex::new(i),
                     NodeIndex::new(j),
-                    [
-                        PMatch::new(
-                            substring, 
-                            *matchcount.get(substring).unwrap(),
-                            true
-                        )
-                    ].into(),
+                    [PMatch::new(
+                        substring,
+                        *matchcount.get(substring).unwrap(),
+                        true,
+                    )]
+                    .into(),
                 );
             }
         }
@@ -317,13 +321,11 @@ impl InputDataGraph<HashSet<PMatch>> {
                 let uniondweight = dag
                     .edge_weight(edge)
                     .unwrap()
-                    .union(&HashSet::from_iter([
-                        PMatch::new(
-                            *t,
-                            *matchcount.get(&kstr).unwrap(),
-                            false
-                        )
-                    ]))
+                    .union(&HashSet::from_iter([PMatch::new(
+                        *t,
+                        *matchcount.get(&kstr).unwrap(),
+                        false,
+                    )]))
                     .cloned()
                     .collect();
                 let _ = dag.update_edge(ns, ne, uniondweight);
@@ -392,7 +394,10 @@ impl InputDataGraph<HashSet<PMatch>> {
 /**
  * Generates an `InputDataGraph` for each column from the vector of concatenated `rows`
  */
-pub fn gen_input_data_graph(rows: &'static Vec<String>, ncols: usize) -> Vec<InputDataGraph<HashSet<PMatch>>> {
+pub fn gen_input_data_graph(
+    rows: &'static Vec<String>,
+    ncols: usize,
+) -> Vec<InputDataGraph<HashSet<PMatch>>> {
     // let mut out = vec![];
     // for i in 0..ncols {
     //     out.push(InputDataGraph::gen_graph_column(rows.iter().skip(i).step_by(ncols).cloned().collect()));

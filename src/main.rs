@@ -51,12 +51,12 @@ fn main() {
     };
 
     let gs = gen_input_data_graph(&INPUT, ncols);
-    for n in 0..gs.len() {
-        let mut fname = String::from("g");
-        fname.push_str(n.to_string().as_str());
-        fname.push_str(".dot");
-        gs[n].to_dot(fname.as_str());
-    }
+    // for n in 0..gs.len() {
+    //     let mut fname = String::from("g");
+    //     fname.push_str(n.to_string().as_str());
+    //     fname.push_str(".dot");
+    //     gs[n].to_dot(fname.as_str(), false);
+    // }
 
     // currently expecting 2 columns
     let examples: Vec<(String, String)> = INPUT
@@ -64,8 +64,7 @@ fn main() {
         .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
         .collect();
 
-    let syn = Synthesizer::new(examples, &gs[1], 1, 100);
+    let syn = Synthesizer::new(examples, &gs[0], 1, 100);
     let expr = syn.synthesize("(!NONTERMINAL_E)");
     println!("{}", expr.pretty(10));
-
 }

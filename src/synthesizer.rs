@@ -1,7 +1,8 @@
 use crate::dsl::{BlinkFillDSL, DSLInterpreter};
 use crate::inputdatagraph::{InputDataGraph, PMatch};
-use std::collections::HashSet;
 use egg::*;
+use itertools::Itertools;
+use std::collections::HashSet;
 
 pub struct Synthesizer<'a> {
     examples: Vec<(String, String)>,
@@ -51,55 +52,30 @@ impl<'a> Synthesizer<'a> {
     fn make_rules(&self) -> Vec<Rewrite<BlinkFillDSL, ()>> {
         let mut rules: Vec<Rewrite<BlinkFillDSL, ()>> = Vec::new();
 
-        // dynamic concat rules
-        rules.extend((1..self.max_concat_arity + 1).map(|n| {
-            let rule: Pattern<BlinkFillDSL> =
-                format!("(!NONTERMINAL_CONCAT {})", "!NONTERMINAL_F ".repeat(n))
-                    .parse()
-                    .unwrap();
-            rewrite!(format!("concat {}", n); "!NONTERMINAL_E" => rule)
-        }));
+        // get set of all 2perms of pmatches, this gives all possible substrs
+        let substrs = self.get_substr_set();
 
-        // idg gives us a set of pmatches to make dynamic rewrites for
-        // for all pmatches: P -> pmatch (Start) | pmatch (End)
-        let pmatches = self.get_pmatch_set();
-        for (i, pmatch) in pmatches.iter().enumerate() {
-            if pmatch.constantstr {
-                // This is absoLUTEly going to cause an issue if the constant string happens to also be a grammar production
-                let rule: Pattern<BlinkFillDSL> = pmatch.tau.parse().unwrap();
-                rules.push(rewrite!(format!("pmatch {}", i); "!NONTERMINAL_F" => rule));
-            } else {
-                let rule: Pattern<BlinkFillDSL> = format!(
-                    "(!TERMINAL_POS {} {} {})",
-                    pmatch.tau,
-                    pmatch.k,
-                    "!NONTERMINAL_DIR"
-                )
-                .parse()
-                .unwrap();
-                rules.push(rewrite!(format!("pmatch {}", i); "!NONTERMINAL_P" => rule));
-            }
+        println!("{}", substrs.len());
+        for perm in substrs {
+            println!("HERE: {} {}", perm[0].0, perm[0].1.to_string());
+            println!("HERE: {} {}", perm[1].0, perm[1].1.to_string());
         }
-
-        // static rules
-        rules.extend(vec![
-            rewrite!("F -> substr(vi, pl, pr)"; "(!NONTERMINAL_F)" => 
-                "(!NONTERMINAL_SUBSTR !TERMINAL_INPUT !NONTERMINAL_P !NONTERMINAL_P)"),
-            rewrite!("Dir -> Start"; "(!NONTERMINAL_DIR)" => "!TERMINAL_START"),
-            rewrite!("Dir -> END"; "(!NONTERMINAL_DIR)" => "!TERMINAL_END"),
-        ]);
+        // given N, generate all Nperms of substrs & conststrs
 
         rules
     }
 
-    fn get_pmatch_set(&self) -> Vec<&PMatch> {
+    fn get_substr_set(&self) -> Vec<Vec<(&PMatch, BlinkFillDSL)>> {
         let edges = self.idg.dag.raw_edges();
-        let mut matches: Vec<&PMatch> = Vec::new();
+        let mut matches: Vec<(&PMatch, BlinkFillDSL)> = Vec::new();
         for e in edges {
             let mch = e.weight.iter().next().unwrap(); // get random item
-            matches.push(mch);
+            matches.push((mch, BlinkFillDSL::Start));
+            matches.push((mch, BlinkFillDSL::End));
         }
-        matches
+        let perms = matches.iter().permutations(2);
+
+        perms.map(|p| vec![p[0].clone(), p[1].clone()]).collect()
     }
 }
 
@@ -115,46 +91,6 @@ impl CostFunction<BlinkFillDSL> for SynthesisCost<'_> {
         C: FnMut(Id) -> Self::Cost,
     {
         let mut cost = 0.0;
-        match enode {
-            BlinkFillDSL::E => { cost += 1_000_000.0; }
-            BlinkFillDSL::F => { cost += 1_000_000.0; }
-            BlinkFillDSL::P => { cost += 1_000_000.0; }
-            BlinkFillDSL::Dir => { cost += 1_000_000.0; }
-            BlinkFillDSL::Pos(ids) => {
-                cost += _costs(ids[2]);
-            }
-            BlinkFillDSL::Concat(ids) => {
-                for n in ids.iter() {
-                    cost += _costs(*n);
-                }
-            }
-            BlinkFillDSL::Substr(ids) => {
-                cost += _costs(ids[1]) + _costs(ids[2]);
-            }
-            _ => {}
-        }
-
-        cost
-    }
-
-    // the extractor never calls this function
-    fn cost_rec(&mut self, expr: &RecExpr<BlinkFillDSL>) -> Self::Cost {
-        let mut cost = 0.0;
-        println!("Synthesized: {}", expr.pretty(10));
-        let intpr = DSLInterpreter::new(&expr);
-        for (input, output) in self.examples {
-            match intpr.interpret(input) {
-                Some(o) => {
-                    if o.to_string() != *output {
-                        // program is not correct
-                        cost += 1_000_000.0;
-                    }
-                }
-                None => cost += 1_000_000.0, // program is not valid
-            }
-        }
-        // optionally, we can have lower costs for shorter programs
-        cost += expr.as_ref().len() as f64;
 
         cost
     }
