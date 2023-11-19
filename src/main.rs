@@ -12,60 +12,128 @@ use synthesizer::Synthesizer;
  * Print usage info
  */
 fn usage() {
-    println!("./grablink <INPUT> <N>\n\tINPUT: input file (e.g. csv file)\n\tN   : number of columns in input");
+    println!(r#"./grablink --egraph --vsa --enum -n <N> <INPUT>
+    INPUT   : input file (e.g. csv file).
+    -n N    : number of columns in input.
+    --egraph: Sets synthesis method to egraph
+    --vsa   : Sets synthesis method to vsa
+    --enum  : Sets synthesis method to enumeration (default)"#);
 }
 
-/*
- * Get input from file. Columns should be semicolon delimited. 1 row per line
- */
-pub static INPUT: Lazy<Vec<String>> = Lazy::new(|| {
-    let mut out: Vec<String> = vec![];
-    let args: Vec<String> = env::args().collect();
-    match args.get(1) {
-        Some(file) => {
-            println!("{}", file);
-            for s in read_to_string(file).unwrap().lines() {
+enum SearchStrategy {
+    EGRAPH, VSA, ENUMERATIVE
+}
+
+struct Flags {
+    search_strategy: SearchStrategy,
+    output_inputdatagraph: bool,
+    output_idg_file_prefix: Box<String>,
+    input_file: Box<String>,
+    column_count: usize,
+}
+
+static ARGS: Lazy<(Flags, Vec<String>)> = Lazy::new(|| {
+    let args = parse_args();
+    match args {
+        Ok(flags) => {
+            let mut input = vec![];
+            for s in read_to_string(flags.input_file.as_str()).unwrap().lines() {
                 let mut x: Vec<String> = String::from(s)
                     .split(";")
                     .map(|x| String::from(x))
                     .collect();
-                out.append(&mut x);
+                input.append(&mut x);
             }
-        }
-        None => {
+
+            (flags, input)
+        },
+        Err(e) => {
             usage();
-            panic!("Need input file");
+            panic!("{}",e);
         }
     }
-
-    out
 });
 
-fn main() {
+fn parse_args() -> Result<Flags, String> {
     let args: Vec<String> = env::args().collect();
-    let ncols: usize = if let Some(s) = args.get(2) {
-        s.parse().unwrap_or(1)
-    } else {
-        usage();
-        panic!("Need number of columns");
+    let mut flags = Flags {
+        search_strategy: SearchStrategy::ENUMERATIVE,
+        output_inputdatagraph: false,
+        output_idg_file_prefix: Box::new(String::new()),
+        input_file: Box::new(String::new()),
+        column_count: 1
     };
+    let mut apply_to_next: Option<fn(&mut Flags, String)> = None;
 
-    let gs = gen_input_data_graph(&INPUT, ncols, true);
-    for n in 0..gs.len() {
-        let mut fname = String::from("g");
-        fname.push_str(n.to_string().as_str());
-        fname.push_str(".dot");
-        gs[n].to_dot(fname.as_str(), false);
+    for arg in args.into_iter().skip(1) {
+        match apply_to_next {
+            Some(f) => {
+                f(&mut flags, arg);
+                apply_to_next = None;
+            }
+            None => {
+                if arg == "--egraph" { flags.search_strategy = SearchStrategy::EGRAPH; }
+                else if arg == "--vsa" { flags.search_strategy = SearchStrategy::VSA; }
+                else if arg == "--enum" { flags.search_strategy = SearchStrategy::ENUMERATIVE; }
+                else if arg == "--output-idg-to" {
+                    flags.output_inputdatagraph = true;
+                    apply_to_next = Some(|f, x| { 
+                        f.output_idg_file_prefix = Box::from(x); 
+                    });
+                }
+                else if arg == "-n" {
+                    apply_to_next = Some(|f,x| { 
+                        f.column_count = match x.parse() {
+                            Ok(n) => n,
+                            Err(_) => 1
+                        }
+                    });
+                }
+                else { 
+                    if !flags.input_file.is_empty() {
+                        return Err(String::from("Two inputs specified!"));
+                    }
+                    flags.input_file = Box::from(arg); 
+                }
+            }
+        }
     }
 
-    // currently expecting 2 columns
-    let examples: Vec<(String, String)> = INPUT
-        .chunks(2)
-        .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
-        .collect();
+    if flags.input_file.is_empty() {
+        return Err(String::from("Missing input file!"))
+    }
 
-    let syn = Synthesizer::new(examples, &gs[1], 1, 100);
-    let expr = syn.synthesize("(!NONTERMINAL_E)");
-    println!("{}", expr.pretty(10));
+    Ok(flags)
+}
+
+fn main() {
+    let flags = &ARGS.0;
+
+    let data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, true);
+    
+    if flags.output_inputdatagraph {
+        for n in 0..data_graphs.len() {
+            let mut fname = String::from("g");
+            fname.push_str(n.to_string().as_str());
+            fname.push_str(".dot");
+            data_graphs[n].to_dot(fname.as_str(), false);
+        }
+    }
+
+    match flags.search_strategy {
+        SearchStrategy::EGRAPH => {
+            // currently expecting 2 columns
+            let examples: Vec<(String, String)> = ARGS.1
+                .chunks(2)
+                .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
+                .collect();
+        
+            let syn = Synthesizer::new(examples, &data_graphs[0], 1, 100);
+            let expr = syn.synthesize("(!NONTERMINAL_E)");
+            println!("{}", expr.pretty(10));
+        }
+        // TODO: implement rest
+        _ => {}
+    }
 
 }
