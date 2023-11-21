@@ -29,13 +29,13 @@ impl IOPair {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Dir {
     Start, End
 }
 
 /// Represents a position in a string
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum Position {
     ConstantPos(Index),
     RegexPos(String, i32, Dir),
@@ -52,7 +52,7 @@ impl Display for Position {
 }
 
 /// The DSL
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum Program {
     ConstantStr(String),
     SubStr(Position, Position),
@@ -397,7 +397,6 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize) -> Option<Program>
 
         for p in choices {
             let t = Program::Concat(p.1);
-            println!("{}",t);
             if t.verify(&is) {
                 return Some(t);
             }

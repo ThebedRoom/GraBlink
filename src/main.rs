@@ -141,7 +141,7 @@ fn main() {
         SearchStrategy::VSA => {
             let program = gen_program(&ARGS.1, ARGS.0.column_count);
             match program {
-                Some(p) => { println!("{}",p); }
+                Some(p) => { println!("{:#?}",p); }
                 None => { println!("Program could not be synthesized!"); }
             }
         }
