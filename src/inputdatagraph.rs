@@ -68,11 +68,13 @@ pub struct NodeID {
     s: String,
     /// Index of `s` this `NodeID` represents
     i: u32,
+    /// How many extra nodes are generated in IDG
+    offset: u32,
 }
 
 impl NodeID {
-    pub fn new(s: String, i: u32) -> Self {
-        NodeID { s, i }
+    pub fn new(s: String, i: u32, o: u32) -> Self {
+        NodeID { s, i, offset: o }
     }
 
     pub fn is_first(&self) -> bool {
@@ -80,7 +82,7 @@ impl NodeID {
     }
 
     pub fn is_last(&self) -> bool {
-        self.i as usize == self.s.len() + 2
+        self.i as usize == self.s.len() + self.offset as usize
     }
 }
 
@@ -132,7 +134,7 @@ impl<T: for<'a>Intersectable<'a, T> + Clone +
     /**
      * Finds the intersection of `self` and `other`
      */
-    fn intersection(&self, other: InputDataGraph<T>, with_deletions: bool) -> InputDataGraph<T> {
+    pub fn intersection(&self, other: InputDataGraph<T>, with_deletions: bool) -> InputDataGraph<T> {
         let mut dag: Dag<BTreeSet<NodeID>, T> = Dag::new();
         // used for preventing duplicate nodes
         let mut nmap: HashMap<BTreeSet<NodeID>, NodeIndex> = HashMap::new();
@@ -211,32 +213,38 @@ impl<T: for<'a>Intersectable<'a, T> + Clone +
      */
     pub fn to_dot(&self, file: &str, show_node_ids: bool) {
         let mut data =
-            String::from("digraph g {\nnode [shape=rectangle]\nrankdir=\"LR\"\n\nsubgraph gg{\n\n");
+            String::from("digraph g {\nratio=\"compress\"\nnode [shape=rectangle]\nrankdir=\"LR\"\n\nsubgraph gg{\n\n");
 
         for e in self.dag.raw_edges() {
             data.push('\t');
             if show_node_ids {
-                data.push_str(e.source().index().to_string().as_str());
-                data.push_str(" [label=\"");
-                for nid in self.dag.node_weight(e.source()).unwrap() {
-                    data.push_str(nid.to_string().as_str());
+                let mut es = String::new();
+                for nid in self.dag.node_weight(e.source()).unwrap().iter() {
+                    es.push_str(nid.to_string().as_str());
                 }
-                data.push_str("\"]\n");
-                data.push_str(e.target().index().to_string().as_str());
-                data.push_str(" [label=\"");
-                for nid in self.dag.node_weight(e.target()).unwrap() {
-                    data.push_str(nid.to_string().as_str());
+                let mut et = String::new();
+                for nid in self.dag.node_weight(e.target()).unwrap().iter() {
+                    et.push_str(nid.to_string().as_str());
                 }
-                data.push_str("\"]\n");
+                data.push_str(format!(
+                    "{} [label=\"{}\"]\n{} [label=\"{}\"]\n",
+                    e.source().index(),
+                    es,
+                    e.target().index(),
+                    et
+                ).as_str());
             }
-            data.push_str(e.source().index().to_string().as_str());
-            data.push_str(" -> ");
-            data.push_str(e.target().index().to_string().as_str());
-            data.push_str(" [label=\"");
+            let mut label = String::new();
             for s in e.weight.iter() {
-                data.push_str(s.to_string().as_str());
+                label.push_str(format!("{}, ",s.to_string()).as_str());
             }
-            data.push_str("\"]\n")
+            data.push_str(format!(
+                "{} -> {} [label=\"{}\"]\n",
+                e.source().index(),
+                e.target().index(),
+                label
+            ).as_str());
+            
         }
 
         data.push_str("}\n}\n");
@@ -249,13 +257,13 @@ impl InputDataGraph<HashSet<PMatch>> {
      * Generates a dag based on `s`, with positive and negative indexed `PMatch` edges for all
      * substrings of `s` and regexes in `TOKENS`
      */
-    pub fn new(s: String) -> Self {
+    pub fn new(s: &String) -> Self {
         // init dag
         let n = s.len();
         let mut dag: Dag<BTreeSet<NodeID>, HashSet<PMatch>> =
             Dag::with_capacity(n + 3, ((n * (n + 1)) / 2) + 2);
         for i in 0..n as u32 + 3 {
-            dag.add_node(BTreeSet::from([NodeID::new(s.clone(), i)]));
+            dag.add_node(BTreeSet::from([NodeID::new(s.clone(), i, 2)]));
         }
 
         let mut matchcount: HashMap<String, i32> = HashMap::new();
@@ -354,9 +362,9 @@ impl InputDataGraph<HashSet<PMatch>> {
         if col.len() == 0 {
             panic!("Cannot generate graph on an empty column")
         }
-        let mut g = InputDataGraph::new(col[0].to_string());
+        let mut g = InputDataGraph::new(&col[0].to_string());
         for i in col.iter().skip(1) {
-            g = g.intersection(InputDataGraph::new(i.to_string()), with_deletions);
+            g = g.intersection(InputDataGraph::new(&i.to_string()), with_deletions);
         }
         g
         // let mut threads = vec![];

@@ -1,12 +1,14 @@
 mod dsl;
 mod inputdatagraph;
 mod synthesizer;
+mod vsa;
 
 use inputdatagraph::gen_input_data_graph;
 use once_cell::sync::Lazy;
 use std::env;
 use std::fs::read_to_string;
 use synthesizer::Synthesizer;
+use vsa::gen_program;
 
 /**
  * Print usage info
@@ -20,6 +22,7 @@ fn usage() {
     --enum  : Sets synthesis method to enumeration (default)"#);
 }
 
+/// Specifies which synthesizer backend to run
 enum SearchStrategy {
     EGRAPH, VSA, ENUMERATIVE
 }
@@ -32,6 +35,9 @@ struct Flags {
     column_count: usize,
 }
 
+/**
+ * Contains cmd line flags and also the contents of the input file. 
+ */
 static ARGS: Lazy<(Flags, Vec<String>)> = Lazy::new(|| {
     let args = parse_args();
     match args {
@@ -131,6 +137,13 @@ fn main() {
             let syn = Synthesizer::new(examples, &data_graphs[0], 1, 100);
             let expr = syn.synthesize("(!NONTERMINAL_E)");
             println!("{}", expr.pretty(10));
+        }
+        SearchStrategy::VSA => {
+            let program = gen_program(&ARGS.1, ARGS.0.column_count);
+            match program {
+                Some(p) => { println!("{}",p); }
+                None => { println!("Program could not be synthesized!"); }
+            }
         }
         // TODO: implement rest
         _ => {}
