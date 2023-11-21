@@ -67,7 +67,7 @@ fn parse_args() -> Result<Flags, String> {
         output_inputdatagraph: false,
         output_idg_file_prefix: Box::new(String::new()),
         input_file: Box::new(String::new()),
-        column_count: 1
+        column_count: 2
     };
     let mut apply_to_next: Option<fn(&mut Flags, String)> = None;
 
