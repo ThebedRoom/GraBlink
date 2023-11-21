@@ -14,7 +14,7 @@ type Index = usize;
 struct IOPair {
     input: String,
     output: String,
-    positions: Vec<(Position, Index)>,
+    positions: Vec<Position>,
     pmap: HashMap<Position, Index>
 }
 
@@ -52,41 +52,11 @@ impl Display for Position {
 }
 
 /// The DSL
-#[derive(Clone, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub enum Program {
     ConstantStr(String),
-    SubStr((Position,Index), (Position,Index)),
+    SubStr(Position, Position),
     Concat(Vec<Program>),
-}
-
-/// Evaluated indices for substrings do not affect equality
-impl PartialEq for Program {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::ConstantStr(l0), Self::ConstantStr(r0)) => l0 == r0,
-            (Self::SubStr(l0, l1), Self::SubStr(r0, r1)) => l0.0 == r0.0 && l1.0 == r1.0,
-            (Self::Concat(l0), Self::Concat(r0)) => l0 == r0,
-            _ => false,
-        }
-    }
-}
-
-/// Evaluated indices for substrings shouldn't be hashed
-impl std::hash::Hash for Program {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            Self::ConstantStr(s) => { s.hash(state); }
-            Self::SubStr((p1,_), (p2,_)) => {
-                p1.hash(state);
-                p2.hash(state);
-            }
-            Self::Concat(v) => {
-                for p in v.iter() {
-                    p.hash(state);
-                }
-            }
-        }
-    }
 }
 
 impl Program {
@@ -96,12 +66,12 @@ impl Program {
             Self::ConstantStr(s) => Some(s.clone()),
             Self::SubStr(p1, p2) => {
                 let start = match p1 {
-                    (Position::ConstantPos(p),_) => Some(p),
-                    (rp,_) => input.pmap.get(&rp)
+                    Position::ConstantPos(p) => Some(p),
+                    rp => input.pmap.get(&rp)
                 };
                 let end = match p2 {
-                    (Position::ConstantPos(p),_) => Some(p),
-                    (rp,_) => input.pmap.get(&rp)
+                    Position::ConstantPos(p) => Some(p),
+                    rp => input.pmap.get(&rp)
                 };
                 match (start, end) {
                     (Some(s), Some(e)) => match input.input.get(s.clone()..e.clone()) {
@@ -125,14 +95,9 @@ impl Program {
         }
     }
 
-    // Verify that program is correct for all I/O pairs
+    /// Verify that program is correct for all I/O pairs
     fn verify(&self, io: &Vec<IOPair>) -> bool {
         for pair in io.iter() {
-            // let e = self.evaluate(&pair);
-            // match e {
-            //     Some(s) => {println!("{}->{}",pair.input, s);}
-            //     None => {}
-            // }
             if self.evaluate(&pair) != Some(pair.output.clone()) {
                 return false;
             }
@@ -146,12 +111,12 @@ impl Program {
             Self::ConstantStr(_) => 1,
             Self::SubStr(p1, p2) => {
                 let scost = match p1 {
-                    (Position::ConstantPos(_),_) => 1,
-                    (Position::RegexPos(_, _, _),_) => 2,
+                    Position::ConstantPos(_) => 1,
+                    Position::RegexPos(_, _, _) => 2,
                 };
                 let ecost = match p2 {
-                    (Position::ConstantPos(_),_) => 1,
-                    (Position::RegexPos(_, _, _),_) => 2,
+                    Position::ConstantPos(_) => 1,
+                    Position::RegexPos(_, _, _) => 2,
                 };
                 scost + ecost + 1
             },
@@ -170,7 +135,7 @@ impl Display for Program {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let prog = match self {
             Self::ConstantStr(s) => format!("ConstantStr({})", s),
-            Self::SubStr(p1, p2) => format!("Substr({},{})[{},{}]", p1.0, p2.0,p1.1,p2.1),
+            Self::SubStr(p1, p2) => format!("Substr({},{})", p1, p2),
             Self::Concat(ss) => {
                 let mut l = String::new();
                 for s in ss.iter() {
@@ -195,7 +160,7 @@ impl Edge {
         Edge { programs: HashSet::new() }
     }
 
-    fn add_substr(&mut self, p1: (Position, Index), p2: (Position, Index)) {
+    fn add_substr(&mut self, p1: Position, p2: Position) {
         self.programs.insert(Program::SubStr(p1, p2));
     }
 
@@ -254,7 +219,7 @@ fn regex_match(token: &String, k: i32, input: &String) -> Option<(Index,Index)> 
 }
 
 impl InputDataGraph<Edge> {
-    fn new(io: &IOPair) -> Self {
+    fn new(io: &mut IOPair) -> Self {
         // init dag
         let n = io.output.len();
         let mut dag: Dag<BTreeSet<NodeID>, Edge> =
@@ -266,6 +231,7 @@ impl InputDataGraph<Edge> {
 
         // constant strings
         for i in 0..n+1 {
+            io.pmap.insert(Position::ConstantPos(i), i);
             for j in i+1..n+1 {
                 let mut edge = Edge::new();
                 let s = io.output.get(i..j).unwrap().to_string();
@@ -278,14 +244,12 @@ impl InputDataGraph<Edge> {
                 }
             }
         }
-        let mut const_pos: Vec<(Position, Index)> = (0..io.input.len()+1).map(|i| (Position::ConstantPos(i),i)).collect();
-        let mut valid_positions = io.positions.clone();
-        valid_positions.append(&mut const_pos);
-        valid_positions.sort_by(|x,y| x.1.cmp(&y.1));
+        let mut valid_positions: Vec<Position> = io.pmap.keys().cloned().collect();
+        valid_positions.sort_by(|x,y| io.pmap.get(x).unwrap().cmp(&io.pmap.get(y).unwrap()));
 
         for i in 0..valid_positions.len() {
             for j in i+1..valid_positions.len() {
-                if valid_positions[i].1 == valid_positions[j].1 { continue; }
+                if valid_positions[i] == valid_positions[j] { continue; }
                 match Program::SubStr(valid_positions[i].clone(), valid_positions[j].clone()).evaluate(&io) {
                     Some(out) => {
                         match cmap.get(&out) {
@@ -399,18 +363,18 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize) -> Option<Program>
     // Avoid recomputing regexpos in the future
     for (p,v) in temp.iter() {
         for i in 0..is.len() {
-            is[i].positions.push((p.clone(), v[i]));
+            is[i].positions.push(p.clone());
             is[i].pmap.insert(p.clone(), v[i]);
         }
     }
     // Sort positions
     for i in is.iter_mut() {
-        i.positions.sort_by(|x,y| x.1.cmp(&y.1));
+        i.positions.sort_by(|x,y| i.pmap.get(x).unwrap().cmp(&i.pmap.get(y).unwrap()));
     }
 
-    let mut odg = InputDataGraph::<Edge>::new(&is[0]);
+    let mut odg = InputDataGraph::<Edge>::new(&mut is[0]);
     odg.to_dot("test.dot", true);
-    for i in is.iter().skip(1) {
+    for i in is.iter_mut().skip(1) {
         let t = InputDataGraph::<Edge>::new(i);
         t.to_dot("test2.dot", true);
         odg = odg.intersection(t, true);
