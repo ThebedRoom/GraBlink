@@ -23,6 +23,7 @@ fn usage() {
 }
 
 /// Specifies which synthesizer backend to run
+#[derive(PartialEq)]
 enum SearchStrategy {
     EGRAPH, VSA, ENUMERATIVE
 }
@@ -115,7 +116,7 @@ fn parse_args() -> Result<Flags, String> {
 fn main() {
     let flags = &ARGS.0;
 
-    let data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, true);
+    let data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, true, ARGS.0.search_strategy != SearchStrategy::VSA);
     
     if flags.output_inputdatagraph {
         for n in 0..data_graphs.len() {

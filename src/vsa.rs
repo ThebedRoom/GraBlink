@@ -14,7 +14,9 @@ type Index = usize;
 struct IOPair {
     input: String,
     output: String,
+    /// All valid positions for this I/O pair
     positions: Vec<Position>,
+    /// Map of Position to the index in `input` it evaluates to
     pmap: HashMap<Position, Index>
 }
 
@@ -51,12 +53,55 @@ impl Display for Position {
     }
 }
 
+#[derive(Clone, Hash, PartialEq, Eq, Debug)]
+pub enum Number {
+    ConstantNum(usize),
+    SubNum(Position, Position),
+    Add(Box<Number>, Box<Number>),
+}
+
+impl Number {
+    fn evaluate(&self, input: &IOPair) -> Option<usize> {
+        match self {
+            Number::ConstantNum(n) => Some(n.clone()),
+            Number::SubNum(p1, p2) => {
+                match Program::SubStr(p1.clone(), p2.clone()).evaluate(input) {
+                    Some(s) => {
+                        match s.parse() {
+                            Ok(n) => Some(n),
+                            _ => None
+                        }
+                    },
+                    None => None,
+                }
+            },
+            Number::Add(n1, n2) => {
+                match (n1.evaluate(input), n2.evaluate(input)) {
+                    (Some(o1), Some(o2)) => Some(o1 + o2),
+                    _ => None
+                }
+            },
+        }
+    }
+}
+
+impl Display for Number {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            Number::ConstantNum(n) => n.to_string(),
+            Number::SubNum(p1, p2) => format!("SubNum({},{})",p1,p2),
+            Number::Add(n1, n2) => format!("{} + {}", n1.to_string(), n2.to_string()),
+        })
+    }
+}
+
 /// The DSL
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum Program {
     ConstantStr(String),
     SubStr(Position, Position),
     Concat(Vec<Program>),
+    NumToStr(Number),
 }
 
 impl Program {
@@ -92,6 +137,12 @@ impl Program {
                 }
                 Some(out)
             },
+            Self::NumToStr(number) => {
+                match number.evaluate(input) {
+                    Some(n) => Some(n.to_string()),
+                    None => None
+                }
+            }
         }
     }
 
@@ -127,6 +178,7 @@ impl Program {
                 }
                 cost
             },
+            Self::NumToStr(_) => 1,
         }
     }
 }
@@ -143,7 +195,8 @@ impl Display for Program {
                     l.push_str(", ");
                 }
                 format!("Concat({})", l)
-            }
+            },
+            Self::NumToStr(n) => format!("NumToStr({})", n.to_string()),
         };
         write!(f, "{}", prog)
     }
@@ -165,7 +218,14 @@ impl Edge {
     }
 
     fn add_str(&mut self, s: String) {
-        self.programs.insert(Program::ConstantStr(s));
+        match s.parse::<usize>() {
+            Ok(n) => {
+                self.programs.insert(Program::NumToStr(Number::ConstantNum(n)));
+            },
+            Err(_) => {
+                self.programs.insert(Program::ConstantStr(s));
+            },
+        }
     }
 }
 
@@ -190,13 +250,12 @@ impl FromIterator<Program> for Edge {
         let mut edge = Edge::new();
         for p in iter {
             match p {
-                Program::ConstantStr(_) => { edge.programs.insert(p); },
-                Program::SubStr(p1, p2) => {
-                    edge.programs.insert(Program::SubStr(p1, p2));
-                },
                 Program::Concat(_) => {
                     panic!("Tried to put a Concat into an edge");
-                }
+                },
+                _ => { 
+                    edge.programs.insert(p); 
+                },
             }
         }
         edge
@@ -303,7 +362,7 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize) -> Option<Program>
     let mut threads = vec![];
     for i in 0..ncols-1 {
         let col: Vec<String> = input.iter().skip(i).step_by(ncols).cloned().collect();
-        threads.push(thread::spawn(|| InputDataGraph::gen_graph_column(col, true)));
+        threads.push(thread::spawn(|| InputDataGraph::gen_graph_column(col, true, false)));
     }
     let idgs: Vec<InputDataGraph<HashSet<PMatch>>> = threads
         .into_iter()
@@ -321,7 +380,7 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize) -> Option<Program>
         }
     ).flatten()
     .flatten()
-    .filter(|x| !x.constantstr && x.tau != "StartT" && x.tau != "EndT")
+    .filter(|x| x.tau != "StartT" && x.tau != "EndT")
     .collect();
 
     // pre-filtering of useless or bad positions
@@ -373,13 +432,9 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize) -> Option<Program>
     }
 
     let mut odg = InputDataGraph::<Edge>::new(&mut is[0]);
-    odg.to_dot("test.dot", true);
     for i in is.iter_mut().skip(1) {
-        let t = InputDataGraph::<Edge>::new(i);
-        t.to_dot("test2.dot", true);
-        odg = odg.intersection(t, true);
+        odg = odg.intersection(InputDataGraph::<Edge>::new(i), true);
     }
-    odg.to_dot("test3.dot", true);
 
     if odg.dag.edge_count() == 0 {
         None
