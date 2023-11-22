@@ -14,12 +14,13 @@ use vsa::gen_program;
  * Print usage info
  */
 fn usage() {
-    println!(r#"./grablink --egraph --vsa --enum -n <N> <INPUT>
-    INPUT   : input file (e.g. csv file).
-    -n N    : number of columns in input.
-    --egraph: Sets synthesis method to egraph
-    --vsa   : Sets synthesis method to vsa
-    --enum  : Sets synthesis method to enumeration (default)"#);
+    println!(r#"./grablink --egraph --vsa --enum --output-idg-to <FILE> -n <N> <INPUT>
+    INPUT                 : input file (e.g. csv file).
+    -n N                  : number of columns in input.
+    --egraph              : Sets synthesis method to egraph
+    --vsa                 : Sets synthesis method to vsa
+    --enum                : Sets synthesis method to enumeration (default)
+    --output-idg-to <FILE>: outputs idgs to FILE"#);
 }
 
 /// Specifies which synthesizer backend to run
@@ -115,20 +116,12 @@ fn parse_args() -> Result<Flags, String> {
 
 fn main() {
     let flags = &ARGS.0;
-
-    let data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, true, ARGS.0.search_strategy != SearchStrategy::VSA);
-    
-    if flags.output_inputdatagraph {
-        for n in 0..data_graphs.len() {
-            let mut fname = String::from("g");
-            fname.push_str(n.to_string().as_str());
-            fname.push_str(".dot");
-            data_graphs[n].to_dot(fname.as_str(), false);
-        }
-    }
+    let mut data_graphs = vec![];
 
     match flags.search_strategy {
         SearchStrategy::EGRAPH => {
+            data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, true, true);
+
             // currently expecting 2 columns
             let examples: Vec<(String, String)> = ARGS.1
                 .chunks(2)
@@ -140,7 +133,7 @@ fn main() {
             println!("{}", expr.pretty(10));
         }
         SearchStrategy::VSA => {
-            let program = gen_program(&ARGS.1, ARGS.0.column_count);
+            let program = gen_program(&ARGS.1, ARGS.0.column_count, ARGS.0.output_inputdatagraph);
             match program {
                 Some(p) => { println!("{:#?}",p); }
                 None => { println!("Program could not be synthesized!"); }
@@ -148,6 +141,15 @@ fn main() {
         }
         // TODO: implement rest
         _ => {}
+    }
+
+    if flags.output_inputdatagraph {
+        for n in 0..data_graphs.len() {
+            let mut fname = ARGS.0.output_idg_file_prefix.to_owned();
+            fname.push_str(n.to_string().as_str());
+            fname.push_str(".dot");
+            data_graphs[n].to_dot(fname.as_str(), false);
+        }
     }
 
 }

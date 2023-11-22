@@ -1,4 +1,3 @@
-use std::collections::hash_map::RandomState;
 use std::collections::{HashSet, BTreeSet, HashMap};
 use std::fmt::Display;
 use std::thread;
@@ -31,7 +30,7 @@ impl IOPair {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Dir {
     Start, End
 }
@@ -354,10 +353,10 @@ impl InputDataGraph<Edge> {
     }
 }
 
-pub fn gen_program(input: &'static Vec<String>, ncols: usize) -> Option<Program> {
+pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: bool) -> Option<Program> {
     let mut is: Vec<IOPair> = input.chunks(2)
-            .map(|x| IOPair::new(x[0].clone(),x[1].clone()))
-            .collect();
+        .map(|x| IOPair::new(x[0].clone(),x[1].clone()))
+        .collect();
 
     let mut threads = vec![];
     for i in 0..ncols-1 {
@@ -417,7 +416,7 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize) -> Option<Program>
     }
     // filter out ones that are equivalent to ConstantPos
     temp.retain(|_,v| {
-        HashSet::<&Index, RandomState>::from_iter(v.iter()).len() > 1
+        HashSet::<&Index, std::collections::hash_map::RandomState>::from_iter(v.iter()).len() > 1
     });
     // Avoid recomputing regexpos in the future
     for (p,v) in temp.iter() {
@@ -432,8 +431,23 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize) -> Option<Program>
     }
 
     let mut odg = InputDataGraph::<Edge>::new(&mut is[0]);
+    if output_odg {
+        let mut fname = String::from(&is[0].output);
+        fname.push_str("_odg.dot");
+        odg.to_dot(&fname, true);
+    }
     for i in is.iter_mut().skip(1) {
-        odg = odg.intersection(InputDataGraph::<Edge>::new(i), true);
+        let temp = InputDataGraph::<Edge>::new(i);
+        if output_odg {
+            let mut fname = String::from(&i.output);
+            fname.push_str("_odg.dot");
+            temp.to_dot(&fname, true);
+        }
+        odg = odg.intersection(temp, true);
+        
+    }
+    if output_odg {
+        odg.to_dot("odg.dot", true);
     }
 
     if odg.dag.edge_count() == 0 {

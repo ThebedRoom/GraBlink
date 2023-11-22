@@ -239,7 +239,7 @@ impl<T: for<'a>Intersectable<'a, T> + Clone +
                 label.push_str(format!("{}, ",s.to_string()).as_str());
             }
             data.push_str(format!(
-                "{} -> {} [label=\"{}\"]\n",
+                "\t{} -> {} [label=\"{}\"]\n",
                 e.source().index(),
                 e.target().index(),
                 label
