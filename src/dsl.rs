@@ -1,6 +1,5 @@
 use crate::inputdatagraph::TOKENS;
 use egg::*;
-use itertools::Itertools;
 use once_cell::sync::Lazy;
 use regex::{Match, Regex};
 

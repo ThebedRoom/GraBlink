@@ -6,6 +6,8 @@ mod vsa;
 use inputdatagraph::gen_input_data_graph;
 use once_cell::sync::Lazy;
 use std::env;
+use std::fmt::Display;
+use std::time::Instant;
 use std::fs::read_to_string;
 use synthesizer::Synthesizer;
 use vsa::gen_program;
@@ -26,11 +28,21 @@ fn usage() {
 }
 
 /// Specifies which synthesizer backend to run
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone, Copy)]
 enum SearchStrategy {
     EGRAPH,
     VSA,
     ENUMERATIVE,
+}
+
+impl Display for SearchStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            SearchStrategy::EGRAPH => "EGRAPH",
+            SearchStrategy::VSA => "VSA",
+            SearchStrategy::ENUMERATIVE => "ENUMERATIVE",
+        })
+    }
 }
 
 struct Flags {
@@ -39,6 +51,7 @@ struct Flags {
     output_idg_file_prefix: Box<String>,
     input_file: Box<String>,
     column_count: usize,
+    time: bool,
 }
 
 /**
@@ -74,6 +87,7 @@ fn parse_args() -> Result<Flags, String> {
         output_idg_file_prefix: Box::new(String::new()),
         input_file: Box::new(String::new()),
         column_count: 2,
+        time: false,
     };
     let mut apply_to_next: Option<fn(&mut Flags, String)> = None;
 
@@ -102,6 +116,8 @@ fn parse_args() -> Result<Flags, String> {
                             Err(_) => 1,
                         }
                     });
+                } else if arg == "--time" {
+                    flags.time = true;
                 } else {
                     if !flags.input_file.is_empty() {
                         return Err(String::from("Two inputs specified!"));
@@ -119,11 +135,10 @@ fn parse_args() -> Result<Flags, String> {
     Ok(flags)
 }
 
-fn main() {
+fn synthesize_program(strategy: SearchStrategy) {
     let flags = &ARGS.0;
     let mut data_graphs = vec![];
-
-    match flags.search_strategy {
+    match strategy {
         SearchStrategy::EGRAPH => {
             data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, true, true);
 
@@ -146,7 +161,7 @@ fn main() {
             let program = gen_program(&ARGS.1, ARGS.0.column_count, ARGS.0.output_inputdatagraph);
             match program {
                 Some(p) => {
-                    println!("{:#?}", p);
+                    println!("{}", p);
                 }
                 None => {
                     println!("Program could not be synthesized!");
@@ -156,7 +171,6 @@ fn main() {
         // TODO: implement rest
         _ => {}
     }
-
     if flags.output_inputdatagraph {
         for n in 0..data_graphs.len() {
             let mut fname = ARGS.0.output_idg_file_prefix.to_owned();
@@ -164,5 +178,19 @@ fn main() {
             fname.push_str(".dot");
             data_graphs[n].to_dot(fname.as_str(), false);
         }
+    }
+}
+
+fn main() {
+    let flags = &ARGS.0;
+    if flags.time {
+        for strategy in vec![SearchStrategy::EGRAPH, SearchStrategy::VSA, SearchStrategy::ENUMERATIVE].iter() {
+            let start = Instant::now();
+            synthesize_program(*strategy);
+            let elapsed = start.elapsed();
+            println!("Strategy {} took {}ms\n", strategy, elapsed.as_nanos() as f64 / 1000000.0)
+        }
+    } else {
+        synthesize_program(flags.search_strategy)
     }
 }

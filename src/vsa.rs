@@ -20,7 +20,7 @@ struct IOPair {
 }
 
 impl IOPair {
-    fn new(input: String, output: String) -> IOPair {
+    pub fn new(input: String, output: String) -> IOPair {
         IOPair { 
             input: input, 
             output: output, 
@@ -463,6 +463,7 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: bool) 
         
         let mut choices = odg.extract(NodeIndex::new(index));
         choices.sort_by(|x,y| x.0.cmp(&y.0));
+        println!("Space size: {}", choices.len());
 
         for p in choices {
             let t = Program::Concat(p.1);
