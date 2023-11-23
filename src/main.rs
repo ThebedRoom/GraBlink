@@ -23,7 +23,6 @@ pub static INPUT: Lazy<Vec<String>> = Lazy::new(|| {
     let args: Vec<String> = env::args().collect();
     match args.get(1) {
         Some(file) => {
-            println!("{}", file);
             for s in read_to_string(file).unwrap().lines() {
                 let mut x: Vec<String> = String::from(s)
                     .split(";")
@@ -50,13 +49,13 @@ fn main() {
         panic!("Need number of columns");
     };
 
-    let gs = gen_input_data_graph(&INPUT, ncols);
-    // for n in 0..gs.len() {
-    //     let mut fname = String::from("g");
-    //     fname.push_str(n.to_string().as_str());
-    //     fname.push_str(".dot");
-    //     gs[n].to_dot(fname.as_str(), false);
-    // }
+    let gs = gen_input_data_graph(&INPUT, ncols, false);
+    for n in 0..gs.len() {
+        let mut fname = String::from("g");
+        fname.push_str(n.to_string().as_str());
+        fname.push_str(".dot");
+        gs[n].to_dot(fname.as_str(), false);
+    }
 
     // currently expecting 2 columns
     let examples: Vec<(String, String)> = INPUT
@@ -64,7 +63,12 @@ fn main() {
         .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
         .collect();
 
-    let syn = Synthesizer::new(examples, &gs[0], 1, 100);
-    let expr = syn.synthesize("(!NONTERMINAL_E)");
-    println!("{}", expr.pretty(10));
+    let syn = Synthesizer::new(&examples, &gs[0]);
+    let (expr, cost) = syn.synthesize("(!NONTERMINAL_E)", false);
+
+    println!("{}\ncost = {}", expr, cost);
+
+    if cost != 0.0 {
+        println!("Synthesizedn't");
+    }
 }

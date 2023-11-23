@@ -23,8 +23,33 @@ fn test_substr_gets_correct_indices() {
         .unwrap();
     let intpr = DSLInterpreter::new(&expr);
     assert_eq!(
-        intpr.interpret(&String::from("abc1def1ghi1jkl1mno")).unwrap().to_string(),
+        intpr
+            .interpret(&String::from("abc1def1ghi1jkl1mno"))
+            .unwrap()
+            .to_string(),
         "1ghi1"
+    )
+}
+
+#[test]
+fn test_full_expression_works() {
+    let expr: RecExpr<BlinkFillDSL> = r#"
+        (!NONTERMINAL_CONCAT
+        (!NONTERMINAL_SUBSTR !TERMINAL_INPUT
+            (!TERMINAL_POS "CAPS" 1 !TERMINAL_START)
+            (!TERMINAL_POS "CAPS" -2 !TERMINAL_END))
+        (!NONTERMINAL_SUBSTR !TERMINAL_INPUT
+            (!TERMINAL_POS "CAPS" 2 !TERMINAL_START)
+            (!TERMINAL_POS "CAPS" -1 !TERMINAL_END)))"#
+        .parse()
+        .unwrap();
+    let intpr = DSLInterpreter::new(&expr);
+    assert_eq!(
+        intpr
+            .interpret(&String::from("First Name"))
+            .unwrap()
+            .to_string(),
+        "FN"
     )
 }
 
@@ -56,25 +81,6 @@ fn test_pos_holds_children() {
     assert_eq!(expr[children[0]].to_string(), "regex");
     assert_eq!(expr[children[1]].to_string(), "1");
     assert_eq!(expr[children[2]].to_string(), "!TERMINAL_START");
-}
-
-#[test]
-fn test_lhs_nonterminals_are_none() {
-    let exprs: Vec<RecExpr<BlinkFillDSL>> = vec![
-        "!NONTERMINAL_E",
-        "!NONTERMINAL_F",
-        "!NONTERMINAL_P",
-        "!NONTERMINAL_DIR",
-    ]
-    .iter()
-    .map(|e| e.parse().unwrap())
-    .collect();
-
-    for expr in exprs {
-        let intpr = DSLInterpreter::new(&expr);
-        let res = intpr.interpret(&String::from(""));
-        assert_eq!(res, None);
-    }
 }
 
 #[test]

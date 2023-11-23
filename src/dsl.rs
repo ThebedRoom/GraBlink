@@ -1,5 +1,6 @@
 use crate::inputdatagraph::TOKENS;
 use egg::*;
+use itertools::Itertools;
 use once_cell::sync::Lazy;
 use regex::{Match, Regex};
 
@@ -9,16 +10,11 @@ static ENDT: Lazy<Regex> = Lazy::new(|| Regex::new("$").unwrap());
 define_language! {
     pub enum BlinkFillDSL {
         "!NONTERMINAL_CONCAT" = Concat(Box<[Id]>),
-
         "!NONTERMINAL_SUBSTR" = Substr([Id; 3]), // substr of (string, pos, pos)
         "!TERMINAL_INPUT" = Input, // vi, current string input
-        // ConstantStr(String), ???
-
         "!TERMINAL_POS" = Pos([Id; 3]), // pos of (token, k, dir)
-
         "!TERMINAL_START" = Start,
         "!TERMINAL_END" = End,
-
         ConstantPos(i32),
         StrVal(String),
     }
@@ -46,63 +42,27 @@ impl DSLInterpreter<'_> {
                     .children()
                     .iter()
                     .map(|id| self.eval(&self.program[*id], &input));
-                let mut acc = String::from("");
-                let mut failure = false;
 
+                let mut acc = String::from("");
                 for val in vals {
+                    // concat all vals into one string
                     match val {
                         Some(BlinkFillDSL::StrVal(s)) => acc += &s,
-                        _ => failure = true,
+                        _ => return None, // encountered bad value
                     }
                 }
-
-                if failure {
-                    None
-                } else {
-                    Some(BlinkFillDSL::StrVal(acc))
-                }
+                Some(BlinkFillDSL::StrVal(acc))
             }
 
             // substr evaluates all children and does str[start..end+1]
             BlinkFillDSL::Substr(children) => {
                 let [_, pos_id1, pos_id2] = children;
-                let vi = Some(input);
-
-                let start_idx = match &self.program[*pos_id1] {
-                    BlinkFillDSL::ConstantPos(i) => Some(*i as usize),
-                    BlinkFillDSL::Pos(_) => {
-                        let (r1, k1, dir1) = self.extract_pos(&self.program[*pos_id1]);
-                        println!("{}", r1.unwrap().as_str());
-                        match (vi, r1, k1, dir1) {
-                            (Some(v), Some(r), Some(k), Some(d)) => {
-                                Some(self.get_regex_index(v, &r, &k, d))
-                            }
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                };
-
-                let end_idx = match &self.program[*pos_id2] {
-                    BlinkFillDSL::ConstantPos(i) => Some(*i as usize),
-                    BlinkFillDSL::Pos(_) => {
-                        let (r2, k2, dir2) = self.extract_pos(&self.program[*pos_id2]);
-                        match (vi, r2, k2, dir2) {
-                            (Some(v), Some(r), Some(k), Some(d)) => {
-                                Some(self.get_regex_index(v, &r, &k, d))
-                            }
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                };
-
-                match (vi, start_idx, end_idx) {
-                    (Some(v), Some(si), Some(ei)) => {
-                        println!("{},{},{} => [{}]", v, si, ei, v[si..ei + 1].to_owned());
-                        Some(BlinkFillDSL::StrVal(v[si..ei + 1].to_owned()))
-                    }
-                    _ => None,
+                let start = self.get_index_from_pos_id(pos_id1, input);
+                let end = self.get_index_from_pos_id(pos_id2, input);
+                if end > start {
+                    Some(BlinkFillDSL::StrVal(input[start..end].to_owned()))
+                } else {
+                    Some(BlinkFillDSL::StrVal(String::from("")))
                 }
             }
 
@@ -118,66 +78,56 @@ impl DSLInterpreter<'_> {
         }
     }
 
-    fn extract_strval<'a>(&'a self, expr: &'a BlinkFillDSL) -> Option<&String> {
-        if let BlinkFillDSL::StrVal(s) = expr {
-            Some(s)
+    fn get_index_from_pos_id<'a>(&'a self, pos_id: &Id, input: &String) -> usize {
+        if let BlinkFillDSL::ConstantPos(p) = &self.program[*pos_id] {
+            return *p as usize;
+        }
+        let (re, k, dir) = self.extract_pos_from_id(pos_id);
+
+        if re.as_str() == "$" {
+            return input.len() - 1; // end of str would be out of bounds if not checked
+        }
+
+        let matches: Vec<Match> = re.find_iter(input).collect();
+        let match_idx = if k >= 0 {
+            k - 1 // k is indexed at 1, vec is indexed at 0
         } else {
-            None
+            (matches.len() as i32) + k // negative k means k + len
+        };
+        // println!("{:?} {}", matches, matches.len());
+        // println!("{} {} {} {} {}", re, k, match_idx, dir, input);
+        let chosen_match = matches.iter().nth(match_idx as usize).unwrap();
+        match dir {
+            BlinkFillDSL::Start => chosen_match.start(),
+            BlinkFillDSL::End => chosen_match.end(),
+            _ => panic!("Expected Dir"),
         }
     }
 
-    fn extract_constantpos<'a>(&'a self, expr: &'a BlinkFillDSL) -> Option<&i32> {
-        if let BlinkFillDSL::ConstantPos(i) = expr {
-            Some(i)
-        } else {
-            None
-        }
-    }
-
-    fn extract_pos<'a>(
-        &'a self,
-        expr: &'a BlinkFillDSL,
-    ) -> (Option<&Regex>, Option<i32>, Option<&'a BlinkFillDSL>) {
-        match expr {
+    fn extract_pos_from_id<'a>(&'a self, pos_id: &Id) -> (Regex, i32, &'a BlinkFillDSL) {
+        match &self.program[*pos_id] {
             BlinkFillDSL::Pos(children) => {
-                let [r_id, k_id, dir_id] = children;
-                let regex = self.extract_strval(&self.program[*r_id]);
-                let k = self.extract_constantpos(&self.program[*k_id]);
-                let dir = match &self.program[*dir_id] {
-                    BlinkFillDSL::Start => Some(&self.program[*dir_id]),
-                    BlinkFillDSL::End => Some(&self.program[*dir_id]),
-                    _ => None,
-                };
-
-                if regex.unwrap_or(&String::new()) == "StartT" {
-                    (Some(&STARTT), Some(1), Some(&BlinkFillDSL::Start))
-                } else if regex.unwrap_or(&String::new()) == "EndT" {
-                    (Some(&ENDT), Some(1), Some(&BlinkFillDSL::End))
-                } else {
-                    match regex {
-                        Some(r) => (Some(TOKENS.get(r.as_str()).unwrap()), k.copied(), dir),
-                        _ => (None, k.copied(), dir),
+                let [c1, c2, c3] = children.map(|id| &self.program[id]);
+                match (c1, c2, c3) {
+                    (BlinkFillDSL::StrVal(r), BlinkFillDSL::ConstantPos(k), dir) => {
+                        let regex = match TOKENS.get(r.as_str()) {
+                            Some(res) => res.clone(),
+                            None => {
+                                if r == "StartT" {
+                                    STARTT.clone()
+                                } else if r == "EndT" {
+                                    ENDT.clone()
+                                } else {
+                                    Regex::new(&regex::escape(r)).unwrap()
+                                }
+                            }
+                        };
+                        (regex, *k, dir)
                     }
+                    (_, _, _) => panic!("Bad position."),
                 }
             }
-            _ => (None, None, None),
-        }
-    }
-
-    fn get_regex_index(&self, vi: &String, re: &Regex, k: &i32, dir: &BlinkFillDSL) -> usize {
-        let matches: Vec<Match> = re.find_iter(vi).collect();
-        let idx = if *k >= 0 {
-            *k - 1
-        } else {
-            (matches.len() as i32) + *k
-        };
-
-        let chosen_match = matches.iter().nth(idx as usize);
-        match dir {
-            BlinkFillDSL::Start => chosen_match.unwrap().start(),
-            BlinkFillDSL::End => chosen_match.unwrap().end() - 1,
-
-            _ => panic!("Expected Dir"),
+            _ => panic!("Expected ConstantPos or Pos."),
         }
     }
 }

@@ -35,7 +35,7 @@ pub(crate) static TOKENS: Lazy<HashMap<&str, Regex>> = Lazy::new(|| {
 });
 
 /// Labels for edges
-#[derive(PartialEq, Eq, Hash, Clone)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug)]
 pub struct PMatch {
     /// Refers to a specific regex
     pub tau: String,
