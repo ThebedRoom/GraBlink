@@ -1,160 +1,200 @@
 use crate::dsl::{BlinkFillDSL, DSLInterpreter};
 use crate::inputdatagraph::{InputDataGraph, PMatch};
-use std::collections::HashSet;
 use egg::*;
+use itertools::Itertools;
+use std::collections::HashSet;
 
 pub struct Synthesizer<'a> {
-    examples: Vec<(String, String)>,
+    examples: &'a Vec<(String, String)>,
     idg: &'a InputDataGraph<HashSet<PMatch>>,
-    max_concat_arity: usize,
-    iter_limit: usize,
 }
 
 impl<'a> Synthesizer<'a> {
     pub fn new(
-        examples: Vec<(String, String)>,
-        idg: &InputDataGraph<HashSet<PMatch>>,
-        max_concat_arity: usize,
-        iter_limit: usize,
-    ) -> Synthesizer {
-        Synthesizer {
-            examples,
-            idg,
-            max_concat_arity,
-            iter_limit,
-        }
+        examples: &'a Vec<(String, String)>,
+        idg: &'a InputDataGraph<HashSet<PMatch>>,
+    ) -> Synthesizer<'a> {
+        Synthesizer { examples, idg }
     }
 
-    pub fn synthesize(&self, s: &str) -> RecExpr<BlinkFillDSL> {
-        // parse s into BlinkFillDSL
+    /// Given some input string `s`, synthesize a program that works
+    /// over all self.examples, based on information from self.idg.
+    pub fn synthesize(&self, s: &str, early_break_on_fail: bool) -> (RecExpr<BlinkFillDSL>, f64) {
         let expr: RecExpr<BlinkFillDSL> = s.parse().unwrap();
-        // Generate EGraph and run rewrite rules
-        let runner = Runner::default()
-            .with_iter_limit(self.iter_limit)
-            .with_expr(&expr)
-            .run(&self.make_rules());
+        // max concat arity needed is max length of output
+        let max_concat_arity = self.examples.iter().map(|e| e.1.len()).max().unwrap();
 
-        let cost = SynthesisCost {
-            examples: &self.examples,
-            egraph: &runner.egraph,
-        };
+        // set initial bests
+        let mut running_best_expr: RecExpr<BlinkFillDSL> = "e".parse().unwrap();
+        let mut running_best_cost = f64::INFINITY;
 
-        // Create an extractor with our custom cost function
-        let extractor = Extractor::new(&runner.egraph, cost);
-        // Extract lowest cost expression
-        let (best_cost, best) = extractor.find_best(runner.roots[0]);
-        println!("{} expanded to {} with cost {}", expr, best, best_cost);
-        runner.egraph.dot().to_png("./egraph.png").unwrap();
-        best // return best expr
-    }
+        for arity in 1..max_concat_arity + 1 {
+            // Generate EGraph and run rewrite rules
+            let rules = self.make_rules(arity);
+            let runner = Runner::default().with_expr(&expr).run(&rules);
 
-    fn make_rules(&self) -> Vec<Rewrite<BlinkFillDSL, ()>> {
-        let mut rules: Vec<Rewrite<BlinkFillDSL, ()>> = Vec::new();
+            let cost = SynthesisCost {
+                examples: &self.examples,
+                egraph: &runner.egraph,
+                early_break_on_fail,
+            };
 
-        // dynamic concat rules
-        rules.extend((1..self.max_concat_arity + 1).map(|n| {
-            let rule: Pattern<BlinkFillDSL> =
-                format!("(!NONTERMINAL_CONCAT {})", "!NONTERMINAL_F ".repeat(n))
-                    .parse()
-                    .unwrap();
-            rewrite!(format!("concat {}", n); "!NONTERMINAL_E" => rule)
-        }));
+            // Create an extractor with our custom cost function
+            let extractor = Extractor::new(&runner.egraph, cost);
+            // Extract lowest cost expression
+            let (best_cost, best_expr) = extractor.find_best(runner.roots[0]);
 
-        // idg gives us a set of pmatches to make dynamic rewrites for
-        // for all pmatches: P -> pmatch (Start) | pmatch (End)
-        let pmatches = self.get_pmatch_set();
-        for (i, pmatch) in pmatches.iter().enumerate() {
-            if pmatch.constantstr {
-                // This is absoLUTEly going to cause an issue if the constant string happens to also be a grammar production
-                let rule: Pattern<BlinkFillDSL> = pmatch.tau.parse().unwrap();
-                rules.push(rewrite!(format!("pmatch {}", i); "!NONTERMINAL_F" => rule));
-            } else {
-                let rule: Pattern<BlinkFillDSL> = format!(
-                    "(!TERMINAL_POS {} {} {})",
-                    pmatch.tau,
-                    pmatch.k,
-                    "!NONTERMINAL_DIR"
-                )
-                .parse()
-                .unwrap();
-                rules.push(rewrite!(format!("pmatch {}", i); "!NONTERMINAL_P" => rule));
+            if best_cost == 0.0 {
+                return (best_expr, best_cost); // found a complete program
+            }
+            if best_cost < running_best_cost {
+                // update if new best
+                running_best_expr = best_expr;
+                running_best_cost = best_cost;
             }
         }
 
-        // static rules
-        rules.extend(vec![
-            rewrite!("F -> substr(vi, pl, pr)"; "(!NONTERMINAL_F)" => 
-                "(!NONTERMINAL_SUBSTR !TERMINAL_INPUT !NONTERMINAL_P !NONTERMINAL_P)"),
-            rewrite!("Dir -> Start"; "(!NONTERMINAL_DIR)" => "!TERMINAL_START"),
-            rewrite!("Dir -> END"; "(!NONTERMINAL_DIR)" => "!TERMINAL_END"),
-        ]);
+        (running_best_expr, running_best_cost) // did not find correct, return most correct
+    }
+
+    /// Given a specific concat_arity, build the rewrite rules
+    /// for all possible concat expressions of said arity.
+    fn make_rules(&self, concat_arity: usize) -> Vec<Rewrite<BlinkFillDSL, ()>> {
+        let mut rules: Vec<Rewrite<BlinkFillDSL, ()>> = Vec::new();
+
+        // get set of all 2perms of pmatches, this gives all possible substrs
+        let substrs = self.get_substr_set();
+        let useful_substrs = self.filter_substrs(substrs);
+
+        // get all permutations of length `concat_arity` of substrs
+        let all_orderings = useful_substrs.into_iter().permutations(concat_arity);
+
+        for (i, ordering) in all_orderings.enumerate() {
+            // build up concat rewrite for this ordering
+            let mut concat = String::from("(!NONTERMINAL_CONCAT ");
+            for sub_pair in ordering {
+                concat += &format!(
+                    "(!NONTERMINAL_SUBSTR !TERMINAL_INPUT (!TERMINAL_POS \"{}\" {} {}) (!TERMINAL_POS \"{}\" {} {})) ",
+                    sub_pair[0].0.tau, sub_pair[0].0.k, sub_pair[0].1, sub_pair[1].0.tau, sub_pair[1].0.k, sub_pair[1].1
+                );
+            }
+            concat += ")";
+
+            let concat_pattern: Pattern<BlinkFillDSL> = concat.parse().unwrap();
+            let rule_name = format!("expand E {}", i);
+            let rule = rewrite!(rule_name; "(!NONTERMINAL_E)" => concat_pattern);
+            rules.push(rule)
+        }
 
         rules
     }
 
-    fn get_pmatch_set(&self) -> Vec<&PMatch> {
+    /// Generates a set of all possible substrings from self.idg.
+    /// Each edge represents a set of equivalent positions, so just take one per edge.
+    /// Then, build all 2-permutations of said positions.
+    fn get_substr_set(&self) -> Vec<[(&PMatch, BlinkFillDSL); 2]> {
         let edges = self.idg.dag.raw_edges();
-        let mut matches: Vec<&PMatch> = Vec::new();
+        let mut matches: Vec<(&PMatch, BlinkFillDSL)> = Vec::new();
         for e in edges {
             let mch = e.weight.iter().next().unwrap(); // get random item
-            matches.push(mch);
+            matches.push((mch, BlinkFillDSL::Start)); // one for start
+            matches.push((mch, BlinkFillDSL::End)); // one for
         }
-        matches
+        let perms = matches.iter().permutations(2);
+        perms.map(|p| [p[0].clone(), p[1].clone()]).collect()
+    }
+
+    /// Filters a set of substrings based on the followig criteria:
+    /// A substring is useful if A.) it doesn't generate an empty string ever and
+    /// B.) it doesn't have the same behavior as any other substring
+    fn filter_substrs<'b>(
+        &'b self,
+        substr_set: Vec<[(&'b PMatch, BlinkFillDSL); 2]>,
+    ) -> Vec<[(&PMatch, BlinkFillDSL); 2]> {
+        let mut out: Vec<[(&PMatch, BlinkFillDSL); 2]> = vec![];
+        let mut covered_strs: HashSet<String> = HashSet::new();
+
+        for pos_pair in substr_set {
+            let sub_expr: RecExpr<BlinkFillDSL> = format!(
+                    "(!NONTERMINAL_SUBSTR !TERMINAL_INPUT (!TERMINAL_POS \"{}\" {} {}) (!TERMINAL_POS \"{}\" {} {})) ",
+                    pos_pair[0].0.tau, pos_pair[0].0.k, pos_pair[0].1, pos_pair[1].0.tau, pos_pair[1].0.k, pos_pair[1].1).parse().unwrap();
+
+            let intpr = DSLInterpreter::new(&sub_expr);
+            let outputs = self
+                .examples
+                .iter()
+                .map(|io| intpr.interpret(&io.0).unwrap())
+                .collect_vec();
+
+            if outputs.contains(&BlinkFillDSL::StrVal(String::from(""))) {
+                continue; // substring produces empty string
+            }
+
+            let mut out_strs = String::from("");
+            for output in outputs {
+                // generate set of "predictions" on input
+                match output {
+                    BlinkFillDSL::StrVal(s) => out_strs += &(" ".to_owned() + &s),
+                    _ => panic!("Expected StrVal."),
+                }
+            }
+
+            if covered_strs.contains(&out_strs) {
+                continue; // substring is already covered logic-wise
+            } else {
+                covered_strs.insert(out_strs);
+                out.push(pos_pair); // substring is useful, add it
+            }
+        }
+        out
     }
 }
 
 struct SynthesisCost<'a> {
     examples: &'a Vec<(String, String)>,
     egraph: &'a EGraph<BlinkFillDSL, ()>,
+    early_break_on_fail: bool,
 }
 impl CostFunction<BlinkFillDSL> for SynthesisCost<'_> {
     type Cost = f64;
-    // this function gives a cost for individual nodes.
+    /// Determines the cost of an enode. In our case, a program has 0 cost if
+    /// it is correct over all I/O examples. Otherwise, if early_break_on_fail
+    /// the cost of an incorrect program is large and fixed, else cost will
+    /// accumulate for each incorrect example (but may take longer).
     fn cost<C>(&mut self, enode: &BlinkFillDSL, mut _costs: C) -> Self::Cost
     where
         C: FnMut(Id) -> Self::Cost,
     {
-        let mut cost = 0.0;
-        match enode {
-            BlinkFillDSL::E => { cost += 1_000_000.0; }
-            BlinkFillDSL::F => { cost += 1_000_000.0; }
-            BlinkFillDSL::P => { cost += 1_000_000.0; }
-            BlinkFillDSL::Dir => { cost += 1_000_000.0; }
-            BlinkFillDSL::Pos(ids) => {
-                cost += _costs(ids[2]);
+        // if enode is not CONCAT, the current enode is not a complete expr
+        if enode.to_string() != "!NONTERMINAL_CONCAT" {
+            if enode.to_string() == "!NONTERMINAL_E" {
+                return f64::INFINITY; // invalid program
+            } else {
+                return 0.0; // part of a valid program
             }
-            BlinkFillDSL::Concat(ids) => {
-                for n in ids.iter() {
-                    cost += _costs(*n);
-                }
-            }
-            BlinkFillDSL::Substr(ids) => {
-                cost += _costs(ids[1]) + _costs(ids[2]);
-            }
-            _ => {}
         }
 
-        cost
-    }
+        // build RecExpr from enode
+        let get_first_enode = |id| self.egraph[id].nodes[0].clone();
+        let expr: RecExpr<BlinkFillDSL> = enode.build_recexpr(get_first_enode);
 
-    // the extractor never calls this function
-    fn cost_rec(&mut self, expr: &RecExpr<BlinkFillDSL>) -> Self::Cost {
+        // run program over all inputs to build cost
         let mut cost = 0.0;
-        println!("Synthesized: {}", expr.pretty(10));
         let intpr = DSLInterpreter::new(&expr);
         for (input, output) in self.examples {
             match intpr.interpret(input) {
                 Some(o) => {
                     if o.to_string() != *output {
-                        // program is not correct
-                        cost += 1_000_000.0;
+                        cost += 10_000_000.0; // program is not correct on this example
+                        if self.early_break_on_fail {
+                            // break on incorrect if specified
+                            break;
+                        }
                     }
                 }
-                None => cost += 1_000_000.0, // program is not valid
+                None => panic!("Synthesized program evaluated to None."),
             }
         }
-        // optionally, we can have lower costs for shorter programs
-        cost += expr.as_ref().len() as f64;
 
         cost
     }

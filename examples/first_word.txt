@@ -1,5 +1,4 @@
-this is a sentence;this
-how about this;how
-test;test
-32 things;32
-MANY THINGS;MANY
+First Word;First
+one Two;one
+Three Four;Three
+five six;five

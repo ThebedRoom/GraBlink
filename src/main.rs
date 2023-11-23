@@ -14,19 +14,23 @@ use vsa::gen_program;
  * Print usage info
  */
 fn usage() {
-    println!(r#"./grablink --egraph --vsa --enum --output-idg-to <FILE> -n <N> <INPUT>
+    println!(
+        r#"./grablink --egraph --vsa --enum --output-idg-to <FILE> -n <N> <INPUT>
     INPUT                 : input file (e.g. csv file).
     -n N                  : number of columns in input.
     --egraph              : Sets synthesis method to egraph
     --vsa                 : Sets synthesis method to vsa
     --enum                : Sets synthesis method to enumeration (default)
-    --output-idg-to <FILE>: outputs idgs to FILE"#);
+    --output-idg-to <FILE>: outputs idgs to FILE"#
+    );
 }
 
 /// Specifies which synthesizer backend to run
 #[derive(PartialEq)]
 enum SearchStrategy {
-    EGRAPH, VSA, ENUMERATIVE
+    EGRAPH,
+    VSA,
+    ENUMERATIVE,
 }
 
 struct Flags {
@@ -38,7 +42,7 @@ struct Flags {
 }
 
 /**
- * Contains cmd line flags and also the contents of the input file. 
+ * Contains cmd line flags and also the contents of the input file.
  */
 static ARGS: Lazy<(Flags, Vec<String>)> = Lazy::new(|| {
     let args = parse_args();
@@ -54,10 +58,10 @@ static ARGS: Lazy<(Flags, Vec<String>)> = Lazy::new(|| {
             }
 
             (flags, input)
-        },
+        }
         Err(e) => {
             usage();
-            panic!("{}",e);
+            panic!("{}", e);
         }
     }
 });
@@ -69,7 +73,7 @@ fn parse_args() -> Result<Flags, String> {
         output_inputdatagraph: false,
         output_idg_file_prefix: Box::new(String::new()),
         input_file: Box::new(String::new()),
-        column_count: 2
+        column_count: 2,
     };
     let mut apply_to_next: Option<fn(&mut Flags, String)> = None;
 
@@ -80,35 +84,36 @@ fn parse_args() -> Result<Flags, String> {
                 apply_to_next = None;
             }
             None => {
-                if arg == "--egraph" { flags.search_strategy = SearchStrategy::EGRAPH; }
-                else if arg == "--vsa" { flags.search_strategy = SearchStrategy::VSA; }
-                else if arg == "--enum" { flags.search_strategy = SearchStrategy::ENUMERATIVE; }
-                else if arg == "--output-idg-to" {
+                if arg == "--egraph" {
+                    flags.search_strategy = SearchStrategy::EGRAPH;
+                } else if arg == "--vsa" {
+                    flags.search_strategy = SearchStrategy::VSA;
+                } else if arg == "--enum" {
+                    flags.search_strategy = SearchStrategy::ENUMERATIVE;
+                } else if arg == "--output-idg-to" {
                     flags.output_inputdatagraph = true;
-                    apply_to_next = Some(|f, x| { 
-                        f.output_idg_file_prefix = Box::from(x); 
+                    apply_to_next = Some(|f, x| {
+                        f.output_idg_file_prefix = Box::from(x);
                     });
-                }
-                else if arg == "-n" {
-                    apply_to_next = Some(|f,x| { 
+                } else if arg == "-n" {
+                    apply_to_next = Some(|f, x| {
                         f.column_count = match x.parse() {
                             Ok(n) => n,
-                            Err(_) => 1
+                            Err(_) => 1,
                         }
                     });
-                }
-                else { 
+                } else {
                     if !flags.input_file.is_empty() {
                         return Err(String::from("Two inputs specified!"));
                     }
-                    flags.input_file = Box::from(arg); 
+                    flags.input_file = Box::from(arg);
                 }
             }
         }
     }
 
     if flags.input_file.is_empty() {
-        return Err(String::from("Missing input file!"))
+        return Err(String::from("Missing input file!"));
     }
 
     Ok(flags)
@@ -123,20 +128,29 @@ fn main() {
             data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, true, true);
 
             // currently expecting 2 columns
-            let examples: Vec<(String, String)> = ARGS.1
+            let examples: Vec<(String, String)> = ARGS
+                .1
                 .chunks(2)
                 .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
                 .collect();
-        
-            let syn = Synthesizer::new(examples, &data_graphs[0], 1, 100);
-            let expr = syn.synthesize("(!NONTERMINAL_E)");
-            println!("{}", expr.pretty(10));
+
+            let syn = Synthesizer::new(&examples, &data_graphs[0]);
+            let (expr, cost) = syn.synthesize("(!NONTERMINAL_E)", false);
+            println!("{}\ncost = {}", expr, cost);
+
+            if cost != 0.0 {
+                println!("Synthesizedn't");
+            }
         }
         SearchStrategy::VSA => {
             let program = gen_program(&ARGS.1, ARGS.0.column_count, ARGS.0.output_inputdatagraph);
             match program {
-                Some(p) => { println!("{:#?}",p); }
-                None => { println!("Program could not be synthesized!"); }
+                Some(p) => {
+                    println!("{:#?}", p);
+                }
+                None => {
+                    println!("Program could not be synthesized!");
+                }
             }
         }
         // TODO: implement rest
@@ -151,5 +165,4 @@ fn main() {
             data_graphs[n].to_dot(fname.as_str(), false);
         }
     }
-
 }
