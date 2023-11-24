@@ -11,10 +11,10 @@ type Index = usize;
 
 /// Represents an input/output pair
 pub struct IOPair {
-    input: String,
-    output: String,
+    pub input: String,
+    pub output: String,
     /// All valid positions for this I/O pair
-    positions: Vec<Position>,
+    pub positions: Vec<Position>,
     /// Map of Position to the index in `input` it evaluates to
     pmap: HashMap<Position, Index>
 }
@@ -60,7 +60,7 @@ pub enum Number {
 }
 
 impl Number {
-    fn evaluate(&self, input: &IOPair) -> Option<usize> {
+    pub fn evaluate(&self, input: &IOPair) -> Option<usize> {
         match self {
             Number::ConstantNum(n) => Some(n.clone()),
             Number::SubNum(p1, p2) => {
