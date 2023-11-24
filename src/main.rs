@@ -168,8 +168,15 @@ fn synthesize_program(strategy: SearchStrategy) {
                 }
             }
         }
-        // TODO: implement rest
-        _ => {}
+        SearchStrategy::ENUMERATIVE => {
+            data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, true, true);
+
+            let program = enumerative(&ARGS.1, &data_graphs[0], &data_graphs[1]);
+            match program {
+                Some(p) => { println!("{:#?}",p); }
+                None => { println!("Program could not be synthesized!"); }
+            }
+        }
     }
     if flags.output_inputdatagraph {
         for n in 0..data_graphs.len() {

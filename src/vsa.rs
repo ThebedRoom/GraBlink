@@ -10,7 +10,7 @@ type Cost = usize;
 type Index = usize;
 
 /// Represents an input/output pair
-struct IOPair {
+pub struct IOPair {
     input: String,
     output: String,
     /// All valid positions for this I/O pair
