@@ -12,6 +12,7 @@ use std::time::Instant;
 use std::fs::read_to_string;
 use synthesizer::Synthesizer;
 use vsa::gen_program;
+use enumerative::enumerative;
 
 /**
  * Print usage info

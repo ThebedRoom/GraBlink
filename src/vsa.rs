@@ -262,7 +262,7 @@ impl FromIterator<Program> for Edge {
 }
 
 /// Start and End index of the `k`th match of `token` in `input`
-fn regex_match(token: &String, k: i32, input: &String) -> Option<(Index,Index)> {
+pub fn regex_match(token: &String, k: i32, input: &String) -> Option<(Index,Index)> {
     let matches: Vec<Match> = TOKENS.get(token.as_str()).unwrap().find_iter(input).collect();
     let idx = if k >= 0 {
         k - 1
