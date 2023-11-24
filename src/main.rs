@@ -2,6 +2,7 @@ mod dsl;
 mod inputdatagraph;
 mod synthesizer;
 mod vsa;
+mod enumerative;
 
 use inputdatagraph::gen_input_data_graph;
 use once_cell::sync::Lazy;
