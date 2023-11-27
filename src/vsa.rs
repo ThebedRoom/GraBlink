@@ -52,6 +52,7 @@ impl Display for Position {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Hash, PartialEq, Eq, Debug)]
 pub enum Number {
     ConstantNum(usize),
@@ -353,20 +354,36 @@ impl InputDataGraph<Edge> {
     }
 }
 
-pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: bool) -> Option<Program> {
+pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: &Option<String>) -> Option<Program> {
     let mut is: Vec<IOPair> = input.chunks(2)
         .map(|x| IOPair::new(x[0].clone(),x[1].clone()))
         .collect();
 
     let mut threads = vec![];
-    for i in 0..ncols-1 {
-        let col: Vec<String> = input.iter().skip(i).step_by(ncols).cloned().collect();
-        threads.push(thread::spawn(|| InputDataGraph::gen_graph_column(col, true, false)));
+    if input.len() % ncols != 0 {
+        panic!("Rows are not all the same length!");
+    }
+    for i in 0..ncols - 1 {
+        let col = input.iter().skip(i).step_by(ncols).cloned().collect();
+        threads.push(thread::spawn(move || {
+            InputDataGraph::gen_graph_column(col, true, true)
+        }));
     }
     let idgs: Vec<InputDataGraph<HashSet<PMatch>>> = threads
         .into_iter()
         .map(|x| x.join().unwrap())
         .collect();
+    match output_odg {
+        Some(s) => {
+            for n in 0..idgs.len() {
+                let mut fname = s.to_owned();
+                fname.push_str(n.to_string().as_str());
+                fname.push_str(".dot");
+                idgs[n].to_dot(fname.as_str(), false);
+            }
+        }
+        None => {}
+    }
 
     // pmatches
     let pmatches: HashSet<PMatch> = idgs.iter().map(
@@ -379,7 +396,7 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: bool) 
         }
     ).flatten()
     .flatten()
-    .filter(|x| x.tau != "StartT" && x.tau != "EndT")
+    .filter(|x| !x.constantstr && x.tau != "StartT" && x.tau != "EndT")
     .collect();
 
     // pre-filtering of useless or bad positions
@@ -431,14 +448,14 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: bool) 
     }
 
     let mut odg = InputDataGraph::<Edge>::new(&mut is[0]);
-    if output_odg {
+    if output_odg != &None {
         let mut fname = String::from(&is[0].output);
         fname.push_str("_odg.dot");
         odg.to_dot(&fname, true);
     }
     for i in is.iter_mut().skip(1) {
         let temp = InputDataGraph::<Edge>::new(i);
-        if output_odg {
+        if output_odg != &None {
             let mut fname = String::from(&i.output);
             fname.push_str("_odg.dot");
             temp.to_dot(&fname, true);
@@ -446,7 +463,7 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: bool) 
         odg = odg.intersection(temp, true);
         
     }
-    if output_odg {
+    if output_odg != &None {
         odg.to_dot("odg.dot", true);
     }
 
@@ -463,11 +480,12 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: bool) 
         
         let mut choices = odg.extract(NodeIndex::new(index));
         choices.sort_by(|x,y| x.0.cmp(&y.0));
-        println!("Space size: {}", choices.len());
+        println!("Space size  : {}", choices.len());
 
         for p in choices {
             let t = Program::Concat(p.1);
             if t.verify(&is) {
+                println!("Program Cost: {}", p.0);
                 return Some(t);
             }
         }

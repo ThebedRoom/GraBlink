@@ -25,7 +25,8 @@ fn usage() {
     --egraph              : Sets synthesis method to egraph
     --vsa                 : Sets synthesis method to vsa
     --enum                : Sets synthesis method to enumeration (default)
-    --output-idg-to <FILE>: outputs idgs to FILE"#
+    --output-idg-to <FILE>: outputs idgs to FILE
+    --time                : run all 3 methods and time them"#
     );
 }
 
@@ -160,7 +161,7 @@ fn synthesize_program(strategy: SearchStrategy) {
             }
         }
         SearchStrategy::VSA => {
-            let program = gen_program(&ARGS.1, ARGS.0.column_count, ARGS.0.output_inputdatagraph);
+            let program = gen_program(&ARGS.1, ARGS.0.column_count, &Some(*ARGS.0.output_idg_file_prefix.to_owned()));
             match program {
                 Some(p) => {
                     println!("{}", p);

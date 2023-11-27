@@ -301,21 +301,22 @@ impl InputDataGraph<HashSet<PMatch>> {
         // create substring edge labels
         for i in 1..s.len() + 1 {
             for j in i + 1..s.len() + 2 {
-                let substring = &s[i - 1..j - 1];
-                *matchcount.entry(substring.to_string()).or_default() += 1;
+                let weight = if with_conststr {
+                    let substring = &s[i - 1..j - 1];
+                    *matchcount.entry(substring.to_string()).or_default() += 1;
+                    [PMatch::new(
+                        substring,
+                        *matchcount.get(substring).unwrap(),
+                        true,
+                    )]
+                    .into()
+                } else {
+                    HashSet::new()
+                };
                 let _ = dag.add_edge(
                     NodeIndex::new(i),
                     NodeIndex::new(j),
-                    if with_conststr {
-                        [PMatch::new(
-                            substring,
-                            *matchcount.get(substring).unwrap(),
-                            true,
-                        )]
-                        .into()
-                    } else {
-                        HashSet::new()
-                    },
+                    weight
                 );
             }
         }
@@ -387,7 +388,7 @@ impl InputDataGraph<HashSet<PMatch>> {
         for i in col.iter().skip(1) {
             g = g.intersection(
                 InputDataGraph::new(&i.to_string(), with_conststr),
-                with_deletions,
+                with_deletions && !with_conststr,
             );
         }
         g
