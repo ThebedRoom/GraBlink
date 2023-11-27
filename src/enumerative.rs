@@ -128,21 +128,20 @@ pub fn enumerative(input: &'static Vec<String>, idg: &InputDataGraph<HashSet<PMa
     let mut substring = sub_s(pmatches,var);
     substring.extend(cmatches);
 
-    let mut bob = None;
-
-
-    let mut counter = 0;
+    //let mut counter = 0;
     for i in 1..var+1 {
         for var in substring.iter().permutations(i).unique().into_iter(){
             let p = Program::Concat(var.iter().map(|&v| v.clone()).collect());
-            counter += 1;
-            if bob == None && verify(&p,&is){
-                println!("Times ran {}",counter);
-                //return Some(p);
-                bob = Some(p);
+            //counter += 1;
+            //if bob == None && verify(&p,&is){
+            if verify(&p, &is){
+                //println!("Times ran {}",counter);
+                return Some(p);
+                //bob = Some(p);
             }
         }
     }
-    println!("The second counter: {}",counter);
-    bob
+    //println!("The second counter: {}",counter);
+    //bo
+    None
 }
