@@ -1,18 +1,19 @@
 mod dsl;
+mod enumerative;
 mod inputdatagraph;
 mod synthesizer;
 mod vsa;
-mod enumerative;
 
+use enumerative::enumerative;
+use env_logger;
 use inputdatagraph::gen_input_data_graph;
 use once_cell::sync::Lazy;
 use std::env;
 use std::fmt::Display;
-use std::time::Instant;
 use std::fs::read_to_string;
+use std::time::Instant;
 use synthesizer::Synthesizer;
 use vsa::gen_program;
-use enumerative::enumerative;
 
 /**
  * Print usage info
@@ -42,11 +43,15 @@ enum SearchStrategy {
 
 impl Display for SearchStrategy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            SearchStrategy::EGRAPH => "EGRAPH",
-            SearchStrategy::VSA => "VSA",
-            SearchStrategy::ENUMERATIVE => "ENUMERATIVE",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                SearchStrategy::EGRAPH => "EGRAPH",
+                SearchStrategy::VSA => "VSA",
+                SearchStrategy::ENUMERATIVE => "ENUMERATIVE",
+            }
+        )
     }
 }
 
@@ -162,17 +167,19 @@ fn synthesize_program(strategy: SearchStrategy) {
                 .map(|chunk| (chunk[0].clone(), chunk[1].clone()))
                 .collect();
 
-            let syn = Synthesizer::new(&examples, &data_graphs[0]);
-            let (expr, cost) = syn.synthesize("(!NONTERMINAL_E)", false);
-            println!("{}\ncost = {}", expr, cost);
-
-            if cost != 0.0 {
-                println!("Synthesizedn't");
+            let syn = Synthesizer::new(&examples, &data_graphs[0], &data_graphs[1]);
+            match syn.synthesize("(!NONTERMINAL_E)") {
+                Some((expr, cost)) => println!("{}\ncost = {}", expr, cost),
+                None => println!("Synthesizedn't"),
             }
         }
         SearchStrategy::VSA => {
             let output = if flags.output_inputdatagraph { Some(*ARGS.0.output_idg_file_prefix.to_owned()) } else { None };
-            let program = gen_program(&ARGS.1, ARGS.0.column_count, &output, flags.with_nums);
+            let program = gen_program(
+                &ARGS.1,
+                ARGS.0.column_count,
+                &output, flags.with_nums,
+            );
             match program {
                 Some(p) => {
                     println!("{}", p);
@@ -187,8 +194,12 @@ fn synthesize_program(strategy: SearchStrategy) {
 
             let program = enumerative(&ARGS.1, &data_graphs[0], &data_graphs[1]);
             match program {
-                Some(p) => { println!("{:#?}",p); }
-                None => { println!("Program could not be synthesized!"); }
+                Some(p) => {
+                    println!("{:#?}", p);
+                }
+                None => {
+                    println!("Program could not be synthesized!");
+                }
             }
         }
     }
@@ -203,13 +214,24 @@ fn synthesize_program(strategy: SearchStrategy) {
 }
 
 fn main() {
+    env_logger::init();
     let flags = &ARGS.0;
     if flags.time {
-        for strategy in vec![SearchStrategy::EGRAPH, SearchStrategy::VSA, SearchStrategy::ENUMERATIVE].iter() {
+        for strategy in vec![
+            SearchStrategy::EGRAPH,
+            SearchStrategy::VSA,
+            SearchStrategy::ENUMERATIVE,
+        ]
+        .iter()
+        {
             let start = Instant::now();
             synthesize_program(*strategy);
             let elapsed = start.elapsed();
-            println!("Strategy {} took {}ms\n", strategy, elapsed.as_nanos() as f64 / 1000000.0)
+            println!(
+                "Strategy {} took {}ms\n",
+                strategy,
+                elapsed.as_nanos() as f64 / 1000000.0
+            )
         }
     } else {
         synthesize_program(flags.search_strategy)
