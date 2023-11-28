@@ -247,7 +247,7 @@ impl<
         for e in self.dag.raw_edges() {
             let mut label = String::new();
             for s in e.weight.iter() {
-                label.push_str(format!("{}, ", s.to_string()).as_str());
+                label.push_str(format!("{}\\n", s.to_string()).as_str());
             }
             data.push_str(
                 format!(

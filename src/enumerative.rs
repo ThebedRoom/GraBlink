@@ -95,7 +95,7 @@ fn verify(prog: &Program, io: &Vec<IOPair>) -> bool {
 
 pub fn enumerative(input: &'static Vec<String>, idg: &InputDataGraph<HashSet<PMatch>>, odg: &InputDataGraph<HashSet<PMatch>>) -> Option<Program>{
     let is: Vec<IOPair> = input.chunks(2)
-        .map(|x| IOPair::new(x[0].clone(),x[1].clone()))
+        .map(|x| IOPair::new(x[0].clone(),x[1].clone(), false))
         .collect();
 
     let pmatches: HashSet<PMatch> = idg.dag.raw_edges().iter().map(
