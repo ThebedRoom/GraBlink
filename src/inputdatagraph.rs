@@ -225,29 +225,26 @@ impl<
     pub fn to_dot(&self, file: &str, show_node_ids: bool) {
         let mut data =
             String::from("digraph g {\nratio=\"compress\"\nnode [shape=rectangle]\nrankdir=\"LR\"\n\nsubgraph gg{\n\n");
-
-        for e in self.dag.raw_edges() {
-            data.push('\t');
-            if show_node_ids {
+        if show_node_ids {
+            for n in 0..self.dag.node_count() {
+                let i = NodeIndex::new(n);
                 let mut es = String::new();
-                for nid in self.dag.node_weight(e.source()).unwrap().iter() {
+                for nid in self.dag.node_weight(i).unwrap() {
                     es.push_str(nid.to_string().as_str());
-                }
-                let mut et = String::new();
-                for nid in self.dag.node_weight(e.target()).unwrap().iter() {
-                    et.push_str(nid.to_string().as_str());
                 }
                 data.push_str(
                     format!(
-                        "{} [label=\"{}\"]\n{} [label=\"{}\"]\n",
-                        e.source().index(),
-                        es,
-                        e.target().index(),
-                        et
+                        "\t{} [label=\"{}\"]\n",
+                        n,
+                        es
                     )
                     .as_str(),
                 );
             }
+        }
+
+
+        for e in self.dag.raw_edges() {
             let mut label = String::new();
             for s in e.weight.iter() {
                 label.push_str(format!("{}, ", s.to_string()).as_str());

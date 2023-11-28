@@ -24,9 +24,11 @@ fn usage() {
     -n N                  : number of columns in input.
     --egraph              : Sets synthesis method to egraph
     --vsa                 : Sets synthesis method to vsa
+    --vsan                : Sets synthesis method to vsa with numbers
     --enum                : Sets synthesis method to enumeration (default)
     --output-idg-to <FILE>: outputs idgs to FILE
-    --time                : run all 3 methods and time them"#
+    --time                : run all 3 methods and time them
+    --timen               : run all 3 methods with numbers and time them"#
     );
 }
 
@@ -55,6 +57,7 @@ struct Flags {
     input_file: Box<String>,
     column_count: usize,
     time: bool,
+    with_nums: bool,
 }
 
 /**
@@ -91,6 +94,7 @@ fn parse_args() -> Result<Flags, String> {
         input_file: Box::new(String::new()),
         column_count: 2,
         time: false,
+        with_nums: false,
     };
     let mut apply_to_next: Option<fn(&mut Flags, String)> = None;
 
@@ -105,6 +109,9 @@ fn parse_args() -> Result<Flags, String> {
                     flags.search_strategy = SearchStrategy::EGRAPH;
                 } else if arg == "--vsa" {
                     flags.search_strategy = SearchStrategy::VSA;
+                } else if arg == "--vsan" {
+                    flags.search_strategy = SearchStrategy::VSA;
+                    flags.with_nums = true;
                 } else if arg == "--enum" {
                     flags.search_strategy = SearchStrategy::ENUMERATIVE;
                 } else if arg == "--output-idg-to" {
@@ -121,6 +128,9 @@ fn parse_args() -> Result<Flags, String> {
                     });
                 } else if arg == "--time" {
                     flags.time = true;
+                } else if arg == "--timen" {
+                    flags.time = true;
+                    flags.with_nums = true;
                 } else {
                     if !flags.input_file.is_empty() {
                         return Err(String::from("Two inputs specified!"));
@@ -161,7 +171,8 @@ fn synthesize_program(strategy: SearchStrategy) {
             }
         }
         SearchStrategy::VSA => {
-            let program = gen_program(&ARGS.1, ARGS.0.column_count, &Some(*ARGS.0.output_idg_file_prefix.to_owned()));
+            let output = if flags.output_inputdatagraph { Some(*ARGS.0.output_idg_file_prefix.to_owned()) } else { None };
+            let program = gen_program(&ARGS.1, ARGS.0.column_count, &output, flags.with_nums);
             match program {
                 Some(p) => {
                     println!("{}", p);
