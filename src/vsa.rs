@@ -23,7 +23,7 @@ pub struct IOPair {
 }
 
 impl IOPair {
-    pub fn new(input: String, output: String, with_nums: bool) -> IOPair {
+    pub fn new(input: String, output: String, with_nums: bool) -> Self {
         let mut nums: HashMap<i64, Vec<Number>> = HashMap::new();
         if with_nums {
             for i in 0..input.len() {
@@ -77,6 +77,7 @@ pub enum Number {
     ConstantNum(i64),
     StrToNum(Box<Program>),
     Add(Box<Number>, Box<Number>),
+    Times(Box<Number>, Box<Number>),
 }
 
 impl Number {
@@ -84,26 +85,24 @@ impl Number {
         match self {
             Self::ConstantNum(n) => Some(n.clone()),
             Self::Add(n1, n2) => {
-                match (n1.evaluate(input), n2.evaluate(input)) {
-                    (Some(o1), Some(o2)) => Some(o1 + o2),
-                    _ => None
-                }
+                Some(n1.evaluate(input)? + n2.evaluate(input)?)
+            },
+            Self::Times(n1, n2) => {
+                Some(n1.evaluate(input)? * n2.evaluate(input)?)
             },
             Self::StrToNum(s) => {
                 let res = s.as_ref().evaluate(input);
-                match res?.parse() {
-                    Ok(n) => Some(n),
-                    Err(_) => None
-                }
-            }    
+                res?.parse().ok()
+            }
         }
     }
 
     pub fn cost(&self) -> Cost {
         match self {
-            Number::ConstantNum(_) => 1,
-            Number::StrToNum(p) => 1 + p.cost(),
-            Number::Add(n1, n2) => 1 + n1.cost() + n2.cost(),
+            Self::ConstantNum(_) => 1,
+            Self::StrToNum(p) => 1 + p.cost(),
+            Self::Add(n1, n2) => 1 + n1.cost() + n2.cost(),
+            Self::Times(n1, n2) => 1 + n1.cost() + n2.cost(),
         }
     }
 }
@@ -111,9 +110,10 @@ impl Number {
 impl Display for Number {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", match self {
-            Number::ConstantNum(n) => n.to_string(),
-            Number::Add(n1, n2) => format!("{} + {}", n1.to_string(), n2.to_string()),
-            Number::StrToNum(n) => format!("StrToNum({})", n)
+            Self::ConstantNum(n) => n.to_string(),
+            Self::Add(n1, n2) => format!("{} + {}", n1.to_string(), n2.to_string()),
+            Self::Times(n1, n2) => format!("{} * {}", n1.to_string(), n2.to_string()),
+            Self::StrToNum(n) => format!("StrToNum({})", n)
         })
     }
 }
@@ -133,38 +133,19 @@ impl Program {
         match self {
             Self::ConstantStr(s) => Some(s.clone()),
             Self::SubStr(p1, p2) => {
-                let start = match p1 {
-                    Position::ConstantPos(p) => Some(p),
-                    rp => input.pmap.get(&rp)
-                };
-                let end = match p2 {
-                    Position::ConstantPos(p) => Some(p),
-                    rp => input.pmap.get(&rp)
-                };
-                match (start, end) {
-                    (Some(s), Some(e)) => match input.input.get(s.clone()..e.clone()) {
-                        Some(s) => Some(String::from(s)),
-                        None => None,
-                    },
-                    _ => None
-                }
-                
+                let start = input.pmap.get(&p1)?;
+                let end = input.pmap.get(&p2)?;
+                Some(String::from(input.input.get(start.clone()..end.clone())?))
             },
             Self::Concat(v) => {
                 let mut out = String::new();
                 for s in v {
-                    match s.evaluate(input) {
-                        Some(t) => { out.push_str(t.as_str()); }
-                        None => { return None; }
-                    }
+                    out.push_str(s.evaluate(input)?.as_str());
                 }
                 Some(out)
             },
             Self::NumToStr(number) => {
-                match number.evaluate(input) {
-                    Some(n) => Some(n.to_string()),
-                    None => None
-                }
+                Some(number.evaluate(input)?.to_string())
             }
         }
     }
@@ -216,7 +197,20 @@ fn enumerate_nums<T>(dag: &mut Dag<T, Edge>, nums: &mut VecDeque<(i64, Vec<Numbe
                 for op1 in n1vec.iter() {
                     for op2 in n2vec.iter() {
                         let p = Number::Add(Box::new(op1.to_owned()), Box::new(op2.to_owned()));
-                        //println!("Trying: {}", p);
+                        dag.edge_weight_mut(*i).unwrap().add_num(p.to_owned());
+                        nums.push_front((sum, vec![p]));
+                        enumerate_nums(dag, nums, num_edges)
+                    }
+                }
+            },
+            None => {},
+        }
+        let product = n1 * n2;
+        match num_edges.get(&product) {
+            Some(i) => {
+                for op1 in n1vec.iter() {
+                    for op2 in n2vec.iter() {
+                        let p = Number::Times(Box::new(op1.to_owned()), Box::new(op2.to_owned()));
                         dag.edge_weight_mut(*i).unwrap().add_num(p.to_owned());
                         nums.push_front((sum, vec![p]));
                         enumerate_nums(dag, nums, num_edges)
@@ -313,7 +307,7 @@ impl FromIterator<Program> for Edge {
 
 /// Start and End index of the `k`th match of `token` in `input`
 pub fn regex_match(token: &String, k: i32, input: &String) -> Option<(Index,Index)> {
-    let matches: Vec<Match> = TOKENS.get(token.as_str()).unwrap().find_iter(input).collect();
+    let matches: Vec<Match> = TOKENS.get(token.as_str())?.find_iter(input).collect();
     let idx = if k >= 0 {
         k - 1
     } else {
@@ -360,36 +354,24 @@ impl InputDataGraph<Edge> {
 
         for i in 0..valid_positions.len() {
             for j in i+1..valid_positions.len() {
-                if valid_positions[i] == valid_positions[j] { continue; }
+                if io.pmap.get(&valid_positions[i]) == io.pmap.get(&valid_positions[j]) { continue; }
                 match Program::SubStr(valid_positions[i].clone(), valid_positions[j].clone()).evaluate(&io) {
                     Some(out) => {
-                        match cmap.get(&out) {
-                            Some(edge) => {
-                                dag.edge_weight_mut(*edge).unwrap()
-                                    .add_substr(
-                                        valid_positions[i].clone(), 
-                                        valid_positions[j].clone()
-                                    );
-                            },
-                            None => {},
-                        }
+                        dag.edge_weight_mut(*cmap.get(&out).unwrap()).unwrap()
+                            .add_substr(
+                                valid_positions[i].clone(), 
+                                valid_positions[j].clone()
+                            );
                         if io.nums.len() > 0 {
-                            match out.parse::<i64>() {
-                                Ok(n) => {
-                                    match io.nums.get_mut(&n) {
-                                        Some(v) => {
-                                            v.push(
-                                                Number::StrToNum(Box::new(Program::SubStr(
-                                                    valid_positions[i].clone(),
-                                                    valid_positions[j].clone()
-                                                )
-                                            )));
-                                        },
-                                        None => {},
-                                    }
-                                },
-                                Err(_) => {}
-                            }
+                            let _ = out.parse::<i64>().and_then(|n| {
+                                io.nums.get_mut(&n).unwrap().push(
+                                    Number::StrToNum(Box::new(Program::SubStr(
+                                        valid_positions[i].clone(),
+                                        valid_positions[j].clone()
+                                    )
+                                )));
+                                Ok(())
+                            });
                         }
                     },
                     None => {},
@@ -491,18 +473,8 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: &Optio
             let rm = regex_match(&p.tau, p.k, &i.input);
             match rm {
                 Some((start,end)) => {
-                    match temp.get_mut(&Position::RegexPos(p.tau.clone(), p.k, Dir::Start)) {
-                        Some(v) => {
-                            v.push(start);
-                        }
-                        None => {}
-                    }
-                    match temp.get_mut(&Position::RegexPos(p.tau.clone(), p.k, Dir::End)) {
-                        Some(v) => {
-                            v.push(end);
-                        }
-                        None => {}
-                    }
+                    temp.get_mut(&Position::RegexPos(p.tau.clone(), p.k, Dir::Start)).unwrap().push(start);
+                    temp.get_mut(&Position::RegexPos(p.tau.clone(), p.k, Dir::End)).unwrap().push(end);
                 }
                 None => {
                     let _ = temp.remove(&Position::RegexPos(p.tau.clone(), p.k, Dir::Start));
