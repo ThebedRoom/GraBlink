@@ -7,10 +7,24 @@ use rayon::prelude::*;
 use std::collections::HashSet;
 
 type Substr<'a> = [(&'a PMatch, BlinkFillDSL); 2];
-#[derive(Debug)]
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
 enum ConcatOperand<'a> {
     ConstantStr(String),
     Substr(Substr<'a>),
+    Plus(Box<ConcatOperand<'a>>, Box<ConcatOperand<'a>>),
+}
+
+impl ConcatOperand<'_> {
+    pub fn to_string(&self) -> String {
+        match self {
+            ConcatOperand::ConstantStr(s) => format!("(\"{}\") ", s),
+            ConcatOperand::Substr(s) => format!(
+                 "(!NONTERMINAL_SUBSTR !TERMINAL_INPUT (!TERMINAL_POS \"{}\" {} {}) (!TERMINAL_POS \"{}\" {} {})) ",
+                s[0].0.tau, s[0].0.k, s[0].1, s[1].0.tau, s[1].0.k, s[1].1),
+            ConcatOperand::Plus(a, b) => format!("(!NONTERMINAL_PLUS {} {}) ", a.to_string(), b.to_string()),
+        }
+    }
 }
 
 pub struct Synthesizer<'a> {
@@ -39,7 +53,10 @@ impl<'a> Synthesizer<'a> {
             // Generate EGraph and run rewrite rules
             let rules = self.make_rules(arity);
             if rules.is_empty() {
-                debug!("No correct expressions of arity {} found, moving to next arity...", arity);
+                debug!(
+                    "No correct expressions of arity {} found, moving to next arity...",
+                    arity
+                );
                 continue;
             }
             debug!(
@@ -59,19 +76,16 @@ impl<'a> Synthesizer<'a> {
     /// Given a specific concat_arity, build the rewrite rules
     /// for all correct concat expressions of said arity.
     fn make_rules(&self, concat_arity: usize) -> Vec<Rewrite<BlinkFillDSL, ()>> {
-        // Get all substrs, filter them, and add all conststrs
+        // get all useful substrings, constant strings, and possible numeric ops on top of those
         let substrs = self.get_substr_set();
-        let mut all_operands: Vec<ConcatOperand> = self
-            .filter_substrs(substrs)
-            .iter()
-            .map(|s| ConcatOperand::Substr(s.clone()))
+        let useful_substrs: Vec<ConcatOperand> = self.filter_substrs(&substrs);
+        let cstrs = self.get_conststr_set();
+        let num_ops = self.get_num_set(&useful_substrs);
+
+        let all_operands: Vec<&ConcatOperand> = vec![&useful_substrs, &cstrs, &num_ops]
+            .into_iter()
+            .flat_map(|set| set.iter())
             .collect();
-        all_operands.extend(
-            self.get_conststr_set()
-                .iter()
-                .map(|s| ConcatOperand::ConstantStr(String::from(s.clone())))
-                .collect_vec(),
-        );
 
         // get all permutations of length `concat_arity` of concat operands
         let all_orderings = all_operands.iter().permutations(concat_arity).collect_vec();
@@ -82,49 +96,41 @@ impl<'a> Synthesizer<'a> {
         );
 
         // for each ordering, generate the corresponding expression and add a rule if it is correct
-        let rules: Vec<_> = (0..all_orderings.len()).into_par_iter().map(|i| {
-            let ordering = all_orderings[i].clone();
+        let rules: Vec<_> = (0..all_orderings.len())
+            .into_par_iter()
+            .map(|i| {
+                let ordering = all_orderings[i].clone();
 
-            let mut concat = String::from("(!NONTERMINAL_CONCAT ");
-            for operand in ordering {
-                match operand {
-                    ConcatOperand::Substr(s) => {
-                        concat += &format!(
-                            "(!NONTERMINAL_SUBSTR !TERMINAL_INPUT (!TERMINAL_POS \"{}\" {} {}) (!TERMINAL_POS \"{}\" {} {})) ",
-                            s[0].0.tau, s[0].0.k, s[0].1, s[1].0.tau, s[1].0.k, s[1].1
-                        );
-                    }
-                    ConcatOperand::ConstantStr(s) => {
-                        concat += &format!("(\"{}\") ", s);
+                let mut concat = String::from("(!NONTERMINAL_CONCAT ");
+                for operand in ordering {
+                    concat += &operand.to_string();
+                }
+                concat += ")";
+
+                let expr: RecExpr<BlinkFillDSL> = concat.parse().unwrap();
+                let intpr = DSLInterpreter::new(&expr);
+                let mut correct = true;
+
+                for (input, output) in self.examples {
+                    if let Some(BlinkFillDSL::StrVal(s)) = intpr.interpret(input) {
+                        if s != *output {
+                            correct = false;
+                            break;
+                        }
                     }
                 }
-            }
-            concat += ")";
-            
-            let expr: RecExpr<BlinkFillDSL> = concat.parse().unwrap();
-            let intpr = DSLInterpreter::new(&expr);
-            let mut correct = true;
-            
-            for (input, output) in self.examples {
-                if let Some(BlinkFillDSL::StrVal(s)) = intpr.interpret(input) {
-                    if s != *output {
-                        correct = false;
-                        break;
-                    }
+
+                if correct {
+                    let concat_pattern: Pattern<BlinkFillDSL> = concat.parse().unwrap();
+                    let rule_name = format!("expand E {}", i);
+                    let rule = rewrite!(rule_name; "(!NONTERMINAL_E)" => concat_pattern);
+                    Some(rule)
+                } else {
+                    None
                 }
-            }
-            
-            if correct {
-                let concat_pattern: Pattern<BlinkFillDSL> = concat.parse().unwrap();
-                let rule_name = format!("expand E {}", i);
-                let rule = rewrite!(rule_name; "(!NONTERMINAL_E)" => concat_pattern);
-                Some(rule)
-            } else {
-                None
-            }
-        
-        }).collect();
-        
+            })
+            .collect();
+
         rules.iter().filter_map(|x| x.clone()).collect() // Filter None's
     }
 
@@ -148,8 +154,8 @@ impl<'a> Synthesizer<'a> {
     /// B.) it doesn't have the same behavior as any other substring
     fn filter_substrs<'b>(
         &'b self,
-        substr_set: Vec<[(&'b PMatch, BlinkFillDSL); 2]>,
-    ) -> Vec<Substr> {
+        substr_set: &Vec<[(&'b PMatch, BlinkFillDSL); 2]>,
+    ) -> Vec<ConcatOperand> {
         let mut out: Vec<Substr> = vec![];
         let mut covered_strs: HashSet<String> = HashSet::new();
 
@@ -182,15 +188,16 @@ impl<'a> Synthesizer<'a> {
                 continue; // substring is already covered logic-wise
             } else {
                 covered_strs.insert(out_strs);
-                out.push(pos_pair); // substring is useful, add it
+                out.push(pos_pair.clone()); // substring is useful, add it
             }
         }
-        out
+        out.iter()
+            .map(|s| ConcatOperand::Substr(s.clone()))
+            .collect()
     }
 
-    fn get_conststr_set(&self) -> Vec<String> {
-        self
-            .odg
+    fn get_conststr_set(&self) -> Vec<ConcatOperand> {
+        self.odg
             .dag
             .raw_edges()
             .iter()
@@ -199,7 +206,20 @@ impl<'a> Synthesizer<'a> {
             .filter(|x| x.constantstr)
             .map(|k| String::from(k.tau))
             .unique() // TODO: Parse numbers here
+            .map(|s| ConcatOperand::ConstantStr(String::from(s.clone())))
             .collect()
+    }
+
+    /// Generates all possible binary op exprs (2perms) from a set of operands
+    fn get_num_set(&'a self, operands: &'a Vec<ConcatOperand>) -> Vec<ConcatOperand> {
+        let mut exprs: Vec<ConcatOperand> = vec![];
+        let perms = operands.iter().permutations(2);
+        for perm in perms {
+            let (l, r) = (Box::new(perm[0].clone()), Box::new(perm[1].clone()));
+            exprs.push(ConcatOperand::Plus(l, r));
+            // other ops...
+        }
+        exprs
     }
 }
 

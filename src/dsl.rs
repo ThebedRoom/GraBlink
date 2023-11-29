@@ -9,6 +9,7 @@ static ENDT: Lazy<Regex> = Lazy::new(|| Regex::new("$").unwrap());
 define_language! {
     pub enum BlinkFillDSL {
         "!NONTERMINAL_CONCAT" = Concat(Box<[Id]>),
+        "!NONTERMINAL_PLUS" = Plus([Id; 2]), // Num + Num
         "!NONTERMINAL_SUBSTR" = Substr([Id; 3]), // substr of (string, pos, pos)
         "!TERMINAL_INPUT" = Input, // vi, current string input
         "!TERMINAL_POS" = Pos([Id; 3]), // pos of (token, k, dir)
@@ -47,6 +48,7 @@ impl DSLInterpreter<'_> {
                     // concat all vals into one string
                     match val {
                         Some(BlinkFillDSL::StrVal(s)) => acc += &s,
+                        Some(BlinkFillDSL::ConstantPos(i)) => acc += &i.to_string(),
                         _ => return None, // encountered bad value
                     }
                 }
@@ -64,6 +66,8 @@ impl DSLInterpreter<'_> {
                     Some(BlinkFillDSL::StrVal(String::from("")))
                 }
             }
+
+            BlinkFillDSL::Plus(children) => self.numeric_op(children, |l, r| l + r, input),
 
             // Input simply substitutes the input
             BlinkFillDSL::Input => Some(BlinkFillDSL::StrVal(input.to_string())),
@@ -127,6 +131,30 @@ impl DSLInterpreter<'_> {
                 }
             }
             _ => panic!("Expected ConstantPos or Pos."),
+        }
+    }
+
+    fn numeric_op(
+        &self,
+        children: &[Id; 2],
+        op: impl Fn(i32, i32) -> i32,
+        input: &String,
+    ) -> Option<BlinkFillDSL> {
+        let ch_evaled = children
+            .iter()
+            .map(|id| self.eval(&self.program[*id], &input))
+            .collect::<Vec<_>>();
+        match (&ch_evaled[0], &ch_evaled[1]) {
+            (Some(BlinkFillDSL::ConstantPos(li)), Some(BlinkFillDSL::ConstantPos(ri))) => {
+                Some(BlinkFillDSL::ConstantPos(op(*li, *ri)))
+            }
+            (Some(BlinkFillDSL::StrVal(ls)), Some(BlinkFillDSL::StrVal(rs))) => {
+                match (ls.parse::<i32>(), rs.parse::<i32>()) {
+                    (Ok(li), Ok(ri)) => Some(BlinkFillDSL::ConstantPos(op(li, ri))),
+                    _ => None,
+                }
+            }
+            _ => None,
         }
     }
 }

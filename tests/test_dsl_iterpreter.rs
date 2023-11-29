@@ -54,6 +54,13 @@ fn test_full_expression_works() {
 }
 
 #[test]
+fn test_plus_works() {
+    let expr: RecExpr<BlinkFillDSL> = "(!NONTERMINAL_PLUS 1 2)".parse().unwrap();
+    let intpr = DSLInterpreter::new(&expr);
+    assert_eq!(intpr.interpret(&String::from("")).unwrap().to_string(), "3")
+}
+
+#[test]
 fn test_input_outputs_input() {
     let expr: RecExpr<BlinkFillDSL> = "(!TERMINAL_INPUT)".parse().unwrap();
     let intpr = DSLInterpreter::new(&expr);
