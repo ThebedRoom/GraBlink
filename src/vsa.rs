@@ -357,11 +357,16 @@ impl InputDataGraph<Edge> {
                 if io.pmap.get(&valid_positions[i]) == io.pmap.get(&valid_positions[j]) { continue; }
                 match Program::SubStr(valid_positions[i].clone(), valid_positions[j].clone()).evaluate(&io) {
                     Some(out) => {
-                        dag.edge_weight_mut(*cmap.get(&out).unwrap()).unwrap()
-                            .add_substr(
-                                valid_positions[i].clone(), 
-                                valid_positions[j].clone()
+                        match cmap.get(&out) {
+                            Some(edge) => {
+                                dag.edge_weight_mut(*edge).unwrap()
+                                    .add_substr(
+                                        valid_positions[i].clone(), 
+                                        valid_positions[j].clone()
                             );
+                            }
+                            None => {}
+                        }
                         if io.nums.len() > 0 {
                             let _ = out.parse::<i64>().and_then(|n| {
                                 io.nums.get_mut(&n).unwrap().push(
