@@ -13,6 +13,9 @@ enum ConcatOperand<'a> {
     ConstantStr(String),
     Substr(Substr<'a>),
     Plus(Box<ConcatOperand<'a>>, Box<ConcatOperand<'a>>),
+    Sub(Box<ConcatOperand<'a>>, Box<ConcatOperand<'a>>),
+    Mul(Box<ConcatOperand<'a>>, Box<ConcatOperand<'a>>),
+    Div(Box<ConcatOperand<'a>>, Box<ConcatOperand<'a>>),
 }
 
 impl ConcatOperand<'_> {
@@ -23,6 +26,9 @@ impl ConcatOperand<'_> {
                  "(!NONTERMINAL_SUBSTR !TERMINAL_INPUT (!TERMINAL_POS \"{}\" {} {}) (!TERMINAL_POS \"{}\" {} {})) ",
                 s[0].0.tau, s[0].0.k, s[0].1, s[1].0.tau, s[1].0.k, s[1].1),
             ConcatOperand::Plus(a, b) => format!("(!NONTERMINAL_PLUS {} {}) ", a.to_string(), b.to_string()),
+            ConcatOperand::Sub(a, b) => format!("(!NONTERMINAL_SUB {} {}) ", a.to_string(), b.to_string()),
+            ConcatOperand::Mul(a, b) => format!("(!NONTERMINAL_MUL {} {}) ", a.to_string(), b.to_string()),
+            ConcatOperand::Div(a, b) => format!("(!NONTERMINAL_DIV {} {}) ", a.to_string(), b.to_string()),
         }
     }
 }
@@ -117,6 +123,9 @@ impl<'a> Synthesizer<'a> {
                             correct = false;
                             break;
                         }
+                    } else {
+                        correct = false;
+                        break;
                     }
                 }
 
@@ -131,7 +140,7 @@ impl<'a> Synthesizer<'a> {
             })
             .collect();
 
-        rules.iter().filter_map(|x| x.clone()).collect() // Filter None's
+        rules.iter().flatten().map(|e| e.clone()).collect() // Filter None's
     }
 
     /// Generates a set of all possible substrings from self.idg.
@@ -205,7 +214,7 @@ impl<'a> Synthesizer<'a> {
             .flatten()
             .filter(|x| x.constantstr)
             .map(|k| String::from(k.tau))
-            .unique() // TODO: Parse numbers here
+            .unique()
             .map(|s| ConcatOperand::ConstantStr(String::from(s.clone())))
             .collect()
     }
@@ -216,8 +225,10 @@ impl<'a> Synthesizer<'a> {
         let perms = operands.iter().permutations(2);
         for perm in perms {
             let (l, r) = (Box::new(perm[0].clone()), Box::new(perm[1].clone()));
-            exprs.push(ConcatOperand::Plus(l, r));
-            // other ops...
+            exprs.push(ConcatOperand::Plus(l.clone(), r.clone()));
+            exprs.push(ConcatOperand::Sub(l.clone(), r.clone()));
+            exprs.push(ConcatOperand::Mul(l.clone(), r.clone()));
+            exprs.push(ConcatOperand::Div(l.clone(), r.clone()));
         }
         exprs
     }
