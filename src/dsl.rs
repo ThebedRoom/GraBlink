@@ -10,6 +10,9 @@ define_language! {
     pub enum BlinkFillDSL {
         "!NONTERMINAL_CONCAT" = Concat(Box<[Id]>),
         "!NONTERMINAL_PLUS" = Plus([Id; 2]), // Num + Num
+        "!NONTERMINAL_SUB" = Sub([Id; 2]), // Num - Num
+        "!NONTERMINAL_MUL" = Mul([Id; 2]), // Num * Num
+        "!NONTERMINAL_DIV" = Div([Id; 2]), // Num / Num
         "!NONTERMINAL_SUBSTR" = Substr([Id; 3]), // substr of (string, pos, pos)
         "!TERMINAL_INPUT" = Input, // vi, current string input
         "!TERMINAL_POS" = Pos([Id; 3]), // pos of (token, k, dir)
@@ -35,6 +38,7 @@ impl DSLInterpreter<'_> {
     }
 
     fn eval(&self, expr: &BlinkFillDSL, input: &String) -> Option<BlinkFillDSL> {
+        let no_cond = |_i: i32| true;
         match expr {
             // concat evaluates all children then concatenates them
             BlinkFillDSL::Concat(_) => {
@@ -67,7 +71,19 @@ impl DSLInterpreter<'_> {
                 }
             }
 
-            BlinkFillDSL::Plus(children) => self.numeric_op(children, |l, r| l + r, input),
+            BlinkFillDSL::Plus(children) => {
+                self.numeric_op(children, |l, r| l + r, no_cond, no_cond, input)
+            }
+            BlinkFillDSL::Sub(children) => {
+                self.numeric_op(children, |l, r| l - r, no_cond, no_cond, input)
+            }
+            BlinkFillDSL::Mul(children) => {
+                self.numeric_op(children, |l, r| l * r, no_cond, no_cond, input)
+            }
+            BlinkFillDSL::Div(children) => {
+                let not_zero = |i: i32| i != 0;
+                self.numeric_op(children, |l, r| l / r, no_cond, not_zero, input)
+            }
 
             // Input simply substitutes the input
             BlinkFillDSL::Input => Some(BlinkFillDSL::StrVal(input.to_string())),
@@ -138,6 +154,8 @@ impl DSLInterpreter<'_> {
         &self,
         children: &[Id; 2],
         op: impl Fn(i32, i32) -> i32,
+        condition_a: impl Fn(i32) -> bool,
+        condition_b: impl Fn(i32) -> bool,
         input: &String,
     ) -> Option<BlinkFillDSL> {
         let ch_evaled = children
@@ -146,11 +164,21 @@ impl DSLInterpreter<'_> {
             .collect::<Vec<_>>();
         match (&ch_evaled[0], &ch_evaled[1]) {
             (Some(BlinkFillDSL::ConstantPos(li)), Some(BlinkFillDSL::ConstantPos(ri))) => {
-                Some(BlinkFillDSL::ConstantPos(op(*li, *ri)))
+                if condition_a(*li) && condition_b(*ri) {
+                    Some(BlinkFillDSL::ConstantPos(op(*li, *ri)))
+                } else {
+                    None
+                }
             }
             (Some(BlinkFillDSL::StrVal(ls)), Some(BlinkFillDSL::StrVal(rs))) => {
                 match (ls.parse::<i32>(), rs.parse::<i32>()) {
-                    (Ok(li), Ok(ri)) => Some(BlinkFillDSL::ConstantPos(op(li, ri))),
+                    (Ok(li), Ok(ri)) => {
+                        if condition_a(li) && condition_b(ri) {
+                            Some(BlinkFillDSL::ConstantPos(op(li, ri)))
+                        } else {
+                            None
+                        }
+                    }
                     _ => None,
                 }
             }
