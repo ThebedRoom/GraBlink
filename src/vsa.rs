@@ -446,7 +446,7 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: &Optio
                 let mut fname = s.to_owned();
                 fname.push_str(n.to_string().as_str());
                 fname.push_str(".dot");
-                idgs[n].to_dot(fname.as_str(), false);
+                idgs[n].to_dot(fname.as_str(), true);
             }
         }
         None => {}
