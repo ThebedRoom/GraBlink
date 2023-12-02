@@ -86,7 +86,16 @@ impl<'a> Synthesizer<'a> {
         let substrs = self.get_substr_set();
         let useful_substrs: Vec<ConcatOperand> = self.filter_substrs(&substrs);
         let cstrs = self.get_conststr_set();
-        let num_ops = self.get_num_set(&useful_substrs);
+
+        let has_num = self
+            .examples
+            .iter()
+            .any(|io| io.1.chars().any(|c| c.is_digit(10)));
+        let num_ops: Vec<ConcatOperand> = if has_num {
+            self.get_num_set(&useful_substrs)
+        } else {
+            Vec::new()
+        };
 
         let all_operands: Vec<&ConcatOperand> = vec![&useful_substrs, &cstrs, &num_ops]
             .into_iter()
