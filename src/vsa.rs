@@ -357,11 +357,16 @@ impl InputDataGraph<Edge> {
                 if io.pmap.get(&valid_positions[i]) == io.pmap.get(&valid_positions[j]) { continue; }
                 match Program::SubStr(valid_positions[i].clone(), valid_positions[j].clone()).evaluate(&io) {
                     Some(out) => {
-                        dag.edge_weight_mut(*cmap.get(&out).unwrap()).unwrap()
-                            .add_substr(
-                                valid_positions[i].clone(), 
-                                valid_positions[j].clone()
+                        match cmap.get(&out) {
+                            Some(edge) => {
+                                dag.edge_weight_mut(*edge).unwrap()
+                                    .add_substr(
+                                        valid_positions[i].clone(), 
+                                        valid_positions[j].clone()
                             );
+                            }
+                            None => {}
+                        }
                         if io.nums.len() > 0 {
                             let _ = out.parse::<i64>().and_then(|n| {
                                 io.nums.get_mut(&n).unwrap().push(
@@ -441,7 +446,7 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: &Optio
                 let mut fname = s.to_owned();
                 fname.push_str(n.to_string().as_str());
                 fname.push_str(".dot");
-                idgs[n].to_dot(fname.as_str(), false);
+                idgs[n].to_dot(fname.as_str(), true);
             }
         }
         None => {}

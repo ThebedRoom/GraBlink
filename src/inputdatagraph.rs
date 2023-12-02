@@ -385,7 +385,7 @@ impl InputDataGraph<HashSet<PMatch>> {
         for i in col.iter().skip(1) {
             g = g.intersection(
                 InputDataGraph::new(&i.to_string(), with_conststr),
-                with_deletions && !with_conststr,
+                with_deletions && with_conststr,
             );
         }
         g
