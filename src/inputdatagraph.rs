@@ -231,6 +231,7 @@ impl<
                 let mut es = String::new();
                 for nid in self.dag.node_weight(i).unwrap() {
                     es.push_str(nid.to_string().as_str());
+                    es.push_str("\\n");
                 }
                 data.push_str(
                     format!(

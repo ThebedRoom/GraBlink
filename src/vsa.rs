@@ -78,6 +78,7 @@ pub enum Number {
     StrToNum(Box<Program>),
     Add(Box<Number>, Box<Number>),
     Times(Box<Number>, Box<Number>),
+    Divide(Box<Number>, Box<Number>),
 }
 
 impl Number {
@@ -90,6 +91,14 @@ impl Number {
             Self::Times(n1, n2) => {
                 Some(n1.evaluate(input)? * n2.evaluate(input)?)
             },
+            Self::Divide(n1, n2) => {
+                let v2 = n2.evaluate(input)?;
+                if v2 == 0 {
+                    None
+                } else {
+                    Some(n1.evaluate(input)? / v2)
+                }
+            }
             Self::StrToNum(s) => {
                 let res = s.as_ref().evaluate(input);
                 res?.parse().ok()
@@ -103,6 +112,7 @@ impl Number {
             Self::StrToNum(p) => 1 + p.cost(),
             Self::Add(n1, n2) => 1 + n1.cost() + n2.cost(),
             Self::Times(n1, n2) => 1 + n1.cost() + n2.cost(),
+            Self::Divide(n1, n2) => 1 + n1.cost() + n2.cost(),
         }
     }
 }
@@ -113,7 +123,8 @@ impl Display for Number {
             Self::ConstantNum(n) => n.to_string(),
             Self::Add(n1, n2) => format!("{} + {}", n1.to_string(), n2.to_string()),
             Self::Times(n1, n2) => format!("{} * {}", n1.to_string(), n2.to_string()),
-            Self::StrToNum(n) => format!("StrToNum({})", n)
+            Self::Divide(n1, n2) => format!("{} / {}", n1.to_string(), n2.to_string()),
+            Self::StrToNum(n) => format!("{}", n)
         })
     }
 }
@@ -205,19 +216,35 @@ fn enumerate_nums<T>(dag: &mut Dag<T, Edge>, nums: &mut VecDeque<(i64, Vec<Numbe
             },
             None => {},
         }
-        let product = n1 * n2;
-        match num_edges.get(&product) {
-            Some(i) => {
-                for op1 in n1vec.iter() {
-                    for op2 in n2vec.iter() {
-                        let p = Number::Times(Box::new(op1.to_owned()), Box::new(op2.to_owned()));
-                        dag.edge_weight_mut(*i).unwrap().add_num(p.to_owned());
-                        nums.push_front((sum, vec![p]));
-                        enumerate_nums(dag, nums, num_edges)
+        // let product = n1 * n2;
+        // match num_edges.get(&product) {
+        //     Some(i) => {
+        //         for op1 in n1vec.iter() {
+        //             for op2 in n2vec.iter() {
+        //                 let p = Number::Times(Box::new(op1.to_owned()), Box::new(op2.to_owned()));
+        //                 dag.edge_weight_mut(*i).unwrap().add_num(p.to_owned());
+        //                 nums.push_front((product, vec![p]));
+        //                 enumerate_nums(dag, nums, num_edges)
+        //             }
+        //         }
+        //     },
+        //     None => {},
+        // }
+        if n2 != 0 {
+            let div = n1 / n2;
+            match num_edges.get(&div) {
+                Some(i) => {
+                    for op1 in n1vec.iter() {
+                        for op2 in n2vec.iter() {
+                            let p = Number::Divide(Box::new(op1.to_owned()), Box::new(op2.to_owned()));
+                            dag.edge_weight_mut(*i).unwrap().add_num(p.to_owned());
+                            nums.push_front((div, vec![p]));
+                            enumerate_nums(dag, nums, num_edges)
+                        }
                     }
-                }
-            },
-            None => {},
+                },
+                None => {},
+            }
         }
     }
 }
@@ -333,7 +360,7 @@ impl InputDataGraph<Edge> {
         let mut num_edges = HashMap::new();
 
         // constant strings
-        for i in 0..n+1 {
+        for i in 0..n {
             for j in i+1..n+1 {
                 let mut edge = Edge::new();
                 let s = io.output.get(i..j).unwrap().to_string();
@@ -352,7 +379,7 @@ impl InputDataGraph<Edge> {
         let mut valid_positions: Vec<Position> = io.pmap.keys().cloned().collect();
         valid_positions.sort_by(|x,y| io.pmap.get(x).unwrap().cmp(&io.pmap.get(y).unwrap()));
 
-        for i in 0..valid_positions.len() {
+        for i in 0..valid_positions.len() - 1 {
             for j in i+1..valid_positions.len() {
                 if io.pmap.get(&valid_positions[i]) == io.pmap.get(&valid_positions[j]) { continue; }
                 match Program::SubStr(valid_positions[i].clone(), valid_positions[j].clone()).evaluate(&io) {
@@ -433,7 +460,7 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: &Optio
     for i in 0..ncols - 1 {
         let col = input.iter().skip(i).step_by(ncols).cloned().collect();
         threads.push(thread::spawn(move || {
-            InputDataGraph::gen_graph_column(col, true, true)
+            InputDataGraph::gen_graph_column(col, false, true)
         }));
     }
     let idgs: Vec<InputDataGraph<HashSet<PMatch>>> = threads

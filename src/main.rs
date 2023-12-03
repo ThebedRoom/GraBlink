@@ -158,7 +158,7 @@ fn synthesize_program(strategy: SearchStrategy) {
     let mut data_graphs = vec![];
     match strategy {
         SearchStrategy::EGRAPH => {
-            data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, true, true);
+            data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, false, true);
 
             // currently expecting 2 columns
             let examples: Vec<(String, String)> = ARGS
@@ -190,7 +190,7 @@ fn synthesize_program(strategy: SearchStrategy) {
             }
         }
         SearchStrategy::ENUMERATIVE => {
-            data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, true, true);
+            data_graphs = gen_input_data_graph(&ARGS.1, flags.column_count, false, true);
 
             let program = enumerative(&ARGS.1, &data_graphs[0], &data_graphs[1]);
             match program {
