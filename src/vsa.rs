@@ -3,6 +3,7 @@ use std::fmt::Display;
 use std::thread;
 use regex::Match;
 use itertools::Itertools;
+use std::cmp::min;
 
 use crate::inputdatagraph::{InputDataGraph, Intersectable, PMatch, NodeID, TOKENS};
 use daggy::{Dag, NodeIndex, EdgeIndex, Walker};
@@ -457,7 +458,7 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: &Optio
     if input.len() % ncols != 0 {
         panic!("Rows are not all the same length!");
     }
-    for i in 0..ncols - 1 {
+    for i in 0..min(ncols - 1,10) {
         let col = input.iter().skip(i).step_by(ncols).cloned().collect();
         threads.push(thread::spawn(move || {
             InputDataGraph::gen_graph_column(col, false, true)

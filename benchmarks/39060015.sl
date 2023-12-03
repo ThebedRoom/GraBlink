@@ -1,0 +1,2 @@
+This is a line. /delete words in the area /keep this part;This is a line. keep this part
+/delete words in the area /;

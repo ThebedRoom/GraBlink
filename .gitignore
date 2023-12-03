@@ -2,3 +2,7 @@
 *.DS_STORE
 *.dot
 *.png
+run_tests
+demo
+string
+tousable.py

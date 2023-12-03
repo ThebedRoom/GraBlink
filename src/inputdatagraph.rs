@@ -4,6 +4,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Display;
 use std::fs;
 use std::thread;
+use std::cmp::min;
 
 use daggy::{Dag, EdgeIndex, NodeIndex, Walker};
 use regex::Regex;
@@ -428,7 +429,7 @@ pub fn gen_input_data_graph(
     if rows.len() % ncols != 0 {
         panic!("Rows are not all the same length!");
     }
-    for i in 0..ncols {
+    for i in 0..min(ncols,10) {
         let col = rows.iter().skip(i).step_by(ncols).cloned().collect();
         threads.push(thread::spawn(move || {
             InputDataGraph::gen_graph_column(col, with_deletions, with_conststr)

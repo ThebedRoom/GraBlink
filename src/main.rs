@@ -39,6 +39,7 @@ enum SearchStrategy {
     EGRAPH,
     VSA,
     ENUMERATIVE,
+    NONE,
 }
 
 impl Display for SearchStrategy {
@@ -50,6 +51,7 @@ impl Display for SearchStrategy {
                 SearchStrategy::EGRAPH => "EGRAPH",
                 SearchStrategy::VSA => "VSA",
                 SearchStrategy::ENUMERATIVE => "ENUMERATIVE",
+                SearchStrategy::NONE => "NONE",
             }
         )
     }
@@ -202,6 +204,9 @@ fn synthesize_program(strategy: SearchStrategy) {
                 }
             }
         }
+        _ => {
+            panic!("Need to specify a search strategy!");
+        }
     }
     if flags.output_inputdatagraph {
         for n in 0..data_graphs.len() {
@@ -216,7 +221,7 @@ fn synthesize_program(strategy: SearchStrategy) {
 fn main() {
     env_logger::init();
     let flags = &ARGS.0;
-    if flags.time {
+    if flags.time && flags.search_strategy == SearchStrategy::NONE {
         for strategy in vec![
             SearchStrategy::EGRAPH,
             SearchStrategy::VSA,
@@ -233,6 +238,15 @@ fn main() {
                 elapsed.as_nanos() as f64 / 1000000.0
             )
         }
+    } else if flags.time {
+        let start = Instant::now();
+        synthesize_program(flags.search_strategy);
+        let elapsed = start.elapsed();
+        println!(
+            "Strategy {} took {}ms\n",
+            flags.search_strategy,
+            elapsed.as_nanos() as f64 / 1000000.0
+        )
     } else {
         synthesize_program(flags.search_strategy)
     }
