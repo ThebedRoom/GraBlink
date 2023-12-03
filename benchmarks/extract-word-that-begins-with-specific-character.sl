@@ -1,3 +1,0 @@
-this is a _username in the middle;_username
-twitter names look like= _name;_name
-with two _name1 and _name2;_name1

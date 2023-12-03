@@ -1,3 +1,0 @@
-focus on one thing at a time;time
-premature opt is the root of all evil;evil
-where is life;life

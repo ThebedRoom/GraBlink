@@ -1,2 +1,0 @@
-send email to json_acme.com;json_acme.com
-contact help_robot.com for all support requests;help_robot.com

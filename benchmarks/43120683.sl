@@ -1,4 +1,0 @@
-one, 1;one apple
-two, 2;two bananas
-three, 3;three strawberries
-four, 4;four oranges
