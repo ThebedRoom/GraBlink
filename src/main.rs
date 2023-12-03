@@ -95,7 +95,7 @@ static ARGS: Lazy<(Flags, Vec<String>)> = Lazy::new(|| {
 fn parse_args() -> Result<Flags, String> {
     let args: Vec<String> = env::args().collect();
     let mut flags = Flags {
-        search_strategy: SearchStrategy::ENUMERATIVE,
+        search_strategy: SearchStrategy::NONE,
         output_inputdatagraph: false,
         output_idg_file_prefix: Box::new(String::new()),
         input_file: Box::new(String::new()),
@@ -239,14 +239,20 @@ fn main() {
             )
         }
     } else if flags.time {
-        let start = Instant::now();
-        synthesize_program(flags.search_strategy);
-        let elapsed = start.elapsed();
-        println!(
-            "Strategy {} took {}ms\n",
-            flags.search_strategy,
-            elapsed.as_nanos() as f64 / 1000000.0
-        )
+        for strategy in vec![
+            SearchStrategy::VSA,
+            SearchStrategy::EGRAPH,
+            SearchStrategy::ENUMERATIVE,
+        ] {
+            let start = Instant::now();
+            synthesize_program(strategy);
+            let elapsed = start.elapsed();
+            println!(
+                "Strategy {} took {}ms\n",
+                strategy,
+                elapsed.as_nanos() as f64 / 1000000.0
+            )
+        }
     } else {
         synthesize_program(flags.search_strategy)
     }
