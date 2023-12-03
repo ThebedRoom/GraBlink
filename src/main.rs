@@ -239,20 +239,14 @@ fn main() {
             )
         }
     } else if flags.time {
-        for strategy in vec![
-            SearchStrategy::VSA,
-            SearchStrategy::EGRAPH,
-            SearchStrategy::ENUMERATIVE,
-        ] {
-            let start = Instant::now();
-            synthesize_program(strategy);
-            let elapsed = start.elapsed();
-            println!(
-                "Strategy {} took {}ms\n",
-                strategy,
-                elapsed.as_nanos() as f64 / 1000000.0
-            )
-        }
+        let start = Instant::now();
+        synthesize_program(flags.search_strategy);
+        let elapsed = start.elapsed();
+        println!(
+            "Strategy {} took {}ms\n",
+            flags.search_strategy,
+            elapsed.as_nanos() as f64 / 1000000.0
+        )
     } else {
         synthesize_program(flags.search_strategy)
     }
