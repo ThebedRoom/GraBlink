@@ -421,31 +421,88 @@ impl InputDataGraph<Edge> {
 
         InputDataGraph { dag: dag }
     }
+}
 
-    fn extract(&self, i: NodeIndex) -> Vec<(Cost, Vec<Program>)> {
-        let mut out = vec![];
-        for n in self.dag.children(i).iter(&self.dag) {
-            let edge_programs: Vec<(Cost, Program)> = self.dag.edge_weight(n.0).unwrap()
-                .programs.iter()
-                .map(|p| (p.cost(),p.clone()))
-                .collect();
-            for (es, ep) in edge_programs {
-                let ps = self.extract(n.1);
-                if ps.len() > 0 {
-                    let mut cprog: Vec<(Cost, Vec<Program>)> = ps.iter()
-                        .map(|(s,prog)| {
-                            let mut pp: Vec<Program> = prog.clone();
-                            pp.insert(0, ep.clone());
-                            (s + es, pp)
-                        })
-                        .collect();
-                    out.append(&mut cprog);
-                } else {
-                    out.push((es, vec![ep]));
+struct ODGIterator {
+    odg: InputDataGraph<Edge>,
+    walkorder: HashMap<NodeIndex, Vec<(EdgeIndex, NodeIndex)>>,
+    current_node: VecDeque<NodeIndex>,
+    current_child: VecDeque<usize>,
+    current_prog: VecDeque<Program>,
+    current_edge_prog: VecDeque<usize>,
+}
+
+fn get_walk_order(dag: &Dag<BTreeSet<NodeID>, Edge>, index: NodeIndex, hm: &mut HashMap<NodeIndex, Vec<(EdgeIndex, NodeIndex)>>) -> usize {
+    let mut children = vec![];
+    for (edge, child) in dag.children(index).iter(dag) {
+        let r = get_walk_order(dag, child, hm);
+        children.push((r,edge,child));
+    }
+    children.sort_by(|x,y| x.0.cmp(&y.0));
+    hm.insert(index, children.iter().map(|x| (x.1, x.2)).collect());
+
+    if children.is_empty() { 0 } else { 1 + children.first().unwrap().0 }
+}
+
+impl Iterator for ODGIterator {
+    type Item = (Cost, Program);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        'pseudorec: while !self.current_node.is_empty() {
+
+            let cnode = *self.current_node.front()?;
+            let cchild = *self.current_child.front()?;
+            let cep = *self.current_edge_prog.front()?;
+
+            for child in self.walkorder.get(&cnode)?.iter().skip(cchild) {
+                for ps in self.odg.dag.edge_weight(child.0)?.programs.iter().skip(cep) {
+                    self.current_prog.push_back(ps.to_owned());
+                    self.current_node.push_front(child.1);
+                    self.current_child.push_front(0);
+                    *self.current_edge_prog.front_mut()? += 1;
+                    self.current_edge_prog.push_front(0);
+                    continue 'pseudorec;
                 }
+                *self.current_child.front_mut()? += 1;
+            }
+            let node = self.current_node.pop_front()?;
+            self.current_child.pop_front();
+            self.current_edge_prog.pop_front();
+            let p = Program::Concat(self.current_prog.to_owned().into());
+            self.current_prog.pop_back();
+            if self.odg.dag.node_weight(node)?.first()?.is_last() {
+                return Some((p.cost(), p));
             }
         }
-        out
+        None
+    }
+}
+
+impl IntoIterator for InputDataGraph<Edge> {
+    type Item = (Cost, Program);
+    type IntoIter = ODGIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let mut index = 0;
+        for i in 0..self.dag.raw_nodes().iter().len() {
+            if self.dag.node_weight(NodeIndex::new(i)).unwrap().first().unwrap().is_first() {
+                index = i;
+                break;
+            }
+        }
+        let n = NodeIndex::new(index);
+
+        let mut hm = HashMap::new();
+        let _ = get_walk_order(&self.dag, n, &mut hm);
+
+        ODGIterator {
+            odg: self,
+            walkorder: hm,
+            current_node: vec![n].into(),
+            current_child: vec![0].into(),
+            current_prog: vec![].into(),
+            current_edge_prog: vec![0].into(),
+        }
     }
 }
 
@@ -549,26 +606,15 @@ pub fn gen_program(input: &'static Vec<String>, ncols: usize, output_odg: &Optio
         
     }
     if output_odg != &None {
-        odg.to_dot("odg.dot", true);
+        odg.to_dot("odg.dot", false);
     }
 
     if odg.dag.edge_count() == 0 {
         None
     } else {
-        let mut index = 0;
-        for i in 0..odg.dag.raw_nodes().iter().len() {
-            if odg.dag.node_weight(NodeIndex::new(i)).unwrap().first().unwrap().is_first() {
-                index = i;
-                break;
-            }
-        }
-        
-        let mut choices = odg.extract(NodeIndex::new(index));
-        choices.sort_by(|x,y| x.0.cmp(&y.0));
-        println!("Space size  : {}", choices.len());
-
-        for p in choices {
-            let t = Program::Concat(p.1);
+        for p in odg.into_iter() {
+            let t = p.1;
+            println!("{}",t);
             if t.verify(&is) {
                 println!("Program Cost: {}", p.0);
                 return Some(t);
